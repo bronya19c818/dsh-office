@@ -1,5 +1,6 @@
 # dsh-office
 
+[![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)](https://awesome-dsh-plugin.com)
 [![npm](https://img.shields.io/npm/v/@copylee/dsh-office)](https://www.npmjs.com/package/@copylee/dsh-office)
 
 让 DeepSeek Harness 直接在你电脑上打开的 Word、Excel、PowerPoint 里改文档。AI 不改写文件，而是通过 Office 的自动化接口（COM）让应用自己执行修改，所以改动会实时出现在窗口里，你可以边看边一起编辑，格式不会因为换工具保存而走样。
