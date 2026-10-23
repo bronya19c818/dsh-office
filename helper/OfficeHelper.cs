@@ -1684,15 +1684,15 @@ static class Program
             dynamic search = range.Duplicate;
             if ((bool)search.Find.Execute(FindText: m.Value.Replace("^", "^^"), MatchCase: true, MatchWildcards: false, Forward: true, Wrap: 0)) spot = search;
         }
-        if (spot == null) spot = doc.Range(start + m.Index, start + m.Index + m.Length);
-        int at = (int)spot.Start, paragraphs = (int)doc.Paragraphs.Count, maths = (int)doc.OMaths.Count;
+        if (spot == null) spot = InStory(range, start + m.Index, start + m.Index + m.Length);
+        int at = (int)spot.Start, paragraphs = (int)range.Paragraphs.Count, maths = (int)range.OMaths.Count;
         // The piece comes in as a paragraph of its own kind, and the line it joins takes that kind over: the style and
         // the look the line had are written down first and given back afterwards.
         string styleWas = null;
         object[] look = null;
         try
         {
-            dynamic before = doc.Range(at, at).Paragraphs[1];
+            dynamic before = InStory(range, at, at).Paragraphs[1];
             styleWas = (string)before.Style.NameLocal;
             dynamic f = before.Format;
             look = new object[] { f.Alignment, f.LeftIndent, f.RightIndent, f.FirstLineIndent, f.CharacterUnitFirstLineIndent, f.SpaceBefore, f.SpaceAfter, f.LineSpacingRule, f.LineSpacing };
@@ -1707,21 +1707,21 @@ static class Program
             omml = "<m:oMath><m:eqArr><m:eqArrPr><m:maxDist m:val=\"1\"/></m:eqArrPr><m:e>" + inner + "<m:r><m:t>#</m:t></m:r><m:r><m:rPr><m:nor/></m:rPr><w:rPr><w:rFonts w:ascii=\"Times New Roman\" w:hAnsi=\"Times New Roman\"/></w:rPr><m:t>(" + System.Security.SecurityElement.Escape(tag) + ")</m:t></m:r></m:e></m:eqArr></m:oMath>";
         }
         spot.InsertXML(FlatDocument(display ? "<m:oMathPara><m:oMathParaPr><m:jc m:val=\"center\"/></m:oMathParaPr>" + omml + "</m:oMathPara>" : omml));
-        if ((int)doc.OMaths.Count <= maths) return false;
+        if ((int)range.OMaths.Count <= maths) return false;
         // The piece comes in as a paragraph: the mark it brought is taken out again, so the line stays one line.
-        if ((int)doc.Paragraphs.Count > paragraphs)
+        if ((int)range.Paragraphs.Count > paragraphs)
         {
             try
             {
-                dynamic line = doc.Range(at, at).Paragraphs[1].Range;
+                dynamic line = InStory(range, at, at).Paragraphs[1].Range;
                 int end = (int)line.End;
-                doc.Range(end - 1, end).Delete();
+                InStory(range, end - 1, end).Delete();
             }
             catch (Exception error) { Trace("formula in WPS, joining the line: " + error.Message.Trim()); }
         }
         try
         {
-            dynamic after = doc.Range(at, at).Paragraphs[1];
+            dynamic after = InStory(range, at, at).Paragraphs[1];
             if (styleWas != null && (string)after.Style.NameLocal != styleWas) after.Style = styleWas;
             if (look != null && !display)
             {
@@ -1736,7 +1736,7 @@ static class Program
         catch (Exception error) { Trace("formula in WPS, the look of the line: " + error.Message.Trim()); }
         if (display)
         {
-            try { dynamic format = doc.Range(at, at).Paragraphs[1].Format; format.Alignment = 1; format.CharacterUnitFirstLineIndent = 0; format.FirstLineIndent = 0; if ((float)format.SpaceBefore < 6f) format.SpaceBefore = 6f; if ((float)format.SpaceAfter < 6f) format.SpaceAfter = 6f; }
+            try { dynamic format = InStory(range, at, at).Paragraphs[1].Format; format.Alignment = 1; format.CharacterUnitFirstLineIndent = 0; format.FirstLineIndent = 0; if ((float)format.SpaceBefore < 6f) format.SpaceBefore = 6f; if ((float)format.SpaceAfter < 6f) format.SpaceAfter = 6f; }
             catch (Exception) { }
         }
         // A numbered equation as wide as the line pushes against its number, or past the margin. It is set a
@@ -1745,22 +1745,22 @@ static class Program
         {
             try
             {
-                dynamic math = doc.Range(at, at).Paragraphs[1].Range.OMaths[1].Range;
+                dynamic math = InStory(range, at, at).Paragraphs[1].Range.OMaths[1].Range;
                 int number = tag.Length + 2;
                 float size = (float)math.Font.Size, least = size * 0.7f;
                 for (int attempt = 0; attempt < 8 && size > 4; attempt++)
                 {
                     int end = (int)math.End, begin = (int)math.Start;
                     // Where the number begins and where the equation proper ends (the place before the "#").
-                    double numberAt = Convert.ToDouble(doc.Range(end - number, end - number).Information[5]);
-                    double lastAt = Convert.ToDouble(doc.Range(end - number - 2, end - number - 2).Information[5]) + size * 0.7;
-                    bool oneLine = Math.Abs(Convert.ToDouble(doc.Range(end, end).Information[6]) - Convert.ToDouble(doc.Range(begin, begin).Information[6])) < 2;
+                    double numberAt = Convert.ToDouble(InStory(range, end - number, end - number).Information[5]);
+                    double lastAt = Convert.ToDouble(InStory(range, end - number - 2, end - number - 2).Information[5]) + size * 0.7;
+                    bool oneLine = Math.Abs(Convert.ToDouble(InStory(range, end, end).Information[6]) - Convert.ToDouble(InStory(range, begin, begin).Information[6])) < 2;
                     Trace("numbered equation: ends at " + Math.Round(lastAt) + ", number at " + Math.Round(numberAt) + ", size " + size + (oneLine ? "" : ", on two lines"));
                     if (oneLine && numberAt - lastAt >= 14) break;
                     if (size - 0.5f < least) break;
                     size -= 0.5f;
                     math.Font.Size = size;
-                    math = doc.Range(at, at).Paragraphs[1].Range.OMaths[1].Range;
+                    math = InStory(range, at, at).Paragraphs[1].Range.OMaths[1].Range;
                 }
             }
             catch (Exception error) { Trace("numbered equation, fitting: " + error.Message.Trim()); }
@@ -1956,11 +1956,11 @@ static class Program
     {
         try
         {
-            int end = (int)built.Range.End, limit = Math.Min(end + padded, (int)doc.Content.End);
-            string tail = limit > end ? ((string)doc.Range(end, limit).Text ?? "") : "";
+            int end = (int)built.Range.End, limit = Math.Min(end + padded, (int)built.Range.StoryLength);
+            string tail = limit > end ? ((string)InStory(built.Range, end, limit).Text ?? "") : "";
             int left = 0;
             while (left < tail.Length && tail[left] == Pad) left++;
-            if (left > 0) doc.Range(end, end + left).Delete();
+            if (left > 0) InStory(built.Range, end, end + left).Delete();
         }
         catch (COMException error) { Trace("equation, taking the padding out: " + error.Message.Trim()); }
     }
@@ -1979,7 +1979,7 @@ static class Program
             dynamic search = range.Duplicate;
             if ((bool)search.Find.Execute(FindText: m.Value.Replace("^", "^^"), MatchCase: true, MatchWildcards: false, Forward: true, Wrap: 0)) spot = search;
         }
-        if (spot == null) spot = doc.Range(start + m.Index, start + m.Index + m.Length);
+        if (spot == null) spot = InStory(range, start + m.Index, start + m.Index + m.Length);
         string read;
         bool byWord = linear.TryGetValue(source, out read);
         // Not read by Word (an environment it lacks, a command it does not know): the helper's own conversion.
@@ -1993,12 +1993,12 @@ static class Program
         {
             int after = (int)spot.End;
             padded = Math.Min(written.Length, 64);
-            doc.Range(after, after).InsertAfter(new string(Pad, padded));
+            InStory(range, after, after).InsertAfter(new string(Pad, padded));
         }
         catch (COMException) { padded = 0; }
         try
         {
-            dynamic math = doc.OMaths.Add(spot);
+            dynamic math = spot.OMaths.Add(spot);
             dynamic built = math.OMaths[1];
             try { built.BuildUp(); }
             finally { if (padded > 0) Unpad(doc, built, padded); }
@@ -2053,13 +2053,279 @@ static class Program
         Follow(doc, p.Range);
         if (expect != null)
         {
-            string text = Squash(Clean((string)p.Range.Text)), want = Squash(expect);
+            string text = Squash(MarkNotes(doc, p.Range)), want = Squash(expect);
             if (want.Length == 0 ? text.Length > 0 : !text.StartsWith(want, StringComparison.Ordinal))
             {
                 throw new Fail("ANCHOR_MISMATCH", "Paragraph " + index + " now starts with \"" + Clip(Clean((string)p.Range.Text), 40) + "\", not " + (want.Length == 0 ? "empty" : "\"" + Clip(expect, 40) + "\"") + ". The document was edited since you read it: call office_read again and retry from this operation.");
             }
         }
         return p;
+    }
+
+    // A position belongs to its story (main text, footnotes, headers...). Never recreate
+    // a footnote position with Document.Range: those coordinates address the main story.
+    static dynamic InStory(dynamic scope, int start, int end)
+    {
+        dynamic copy = scope.Duplicate;
+        copy.SetRange(start, end);
+        return copy;
+    }
+
+    class NoteToken
+    {
+        public int Start, Length;
+        public string Text;
+    }
+
+    // Parse before touching COM. Braces/brackets may nest (LaTeX, bibliographic text),
+    // but footnotes may not. Escaped syntax stays literal and is never parsed again.
+    static List<NoteToken> ParseNotes(string text)
+    {
+        List<NoteToken> notes = new List<NoteToken>();
+        for (int i = 0; i < text.Length; i++)
+        {
+            if (Escaped(text, i)) continue;
+            bool tex = text.Substring(i).StartsWith("\\footnote{", StringComparison.Ordinal);
+            bool bracket = text.Substring(i).StartsWith("[fn:", StringComparison.Ordinal);
+            if (!tex && !bracket) continue;
+            int content = i + (tex ? 10 : 4), depth = 1, j = content;
+            char open = tex ? '{' : '[', close = tex ? '}' : ']';
+            for (; j < text.Length; j++)
+            {
+                if (Escaped(text, j)) continue;
+                if (text.Substring(j).StartsWith("\\footnote{", StringComparison.Ordinal) || text.Substring(j).StartsWith("[fn:", StringComparison.Ordinal))
+                    throw new Fail("BAD_ARGS", "Nested footnotes are not supported.");
+                if (text[j] == open) depth++;
+                if (text[j] == close) { depth--; if (depth == 0) break; }
+            }
+            if (depth != 0) throw new Fail("BAD_ARGS", "Unclosed footnote: close it before editing the document.");
+            string body = text.Substring(content, j - content);
+            if (string.IsNullOrWhiteSpace(body)) throw new Fail("BAD_ARGS", "A footnote must contain text.");
+            notes.Add(new NoteToken { Start = i, Length = j - i + 1, Text = body });
+            i = j;
+        }
+        return notes;
+    }
+
+    static bool Escaped(string text, int at)
+    {
+        int slashes = 0;
+        while (at > 0 && text[--at] == '\\') slashes++;
+        return slashes % 2 != 0;
+    }
+
+    static string LiteralNoteText(string text)
+    {
+        return text.Replace("\\[fn:", "[fn:").Replace("\\\\footnote{", "\\footnote{");
+    }
+
+    static dynamic NoteBody(dynamic note)
+    {
+        dynamic body = note.Range.Duplicate;
+        string text = (string)body.Text ?? "";
+        // Keep the native reference mark and terminating paragraph, including on WPS.
+        if (text.StartsWith("\u0002", StringComparison.Ordinal)) body.Start = (int)body.Start + 1;
+        if (((string)body.Text ?? "").EndsWith("\r", StringComparison.Ordinal)) body.End = (int)body.End - 1;
+        return body;
+    }
+
+    static dynamic FindNote(dynamic doc, Bag op)
+    {
+        if (op.Has("para") || op.Has("to")) throw new Fail("BAD_ARGS", "footnote cannot be combined with para/to.");
+        int index = op.Int("footnote", 0);
+        if (index < 1 || index > (int)doc.Footnotes.Count) throw new Fail("ANCHOR_MISSING", "There is no footnote " + index + ". Read footnotes again.");
+        if (op.Raw("expect") == null) throw new Fail("BAD_ARGS", "Footnote edits need expect: the first words of the note as last read.");
+        dynamic note = doc.Footnotes[index];
+        string actual = Clean((string)NoteBody(note).Text), expect = op.Str("expect", "");
+        if (!actual.StartsWith(expect, StringComparison.Ordinal)) throw new Fail("ANCHOR_MISMATCH", "Footnote " + index + " no longer starts with expect. Read footnotes again.");
+        return note;
+    }
+
+    static void CheckNoteText(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) throw new Fail("BAD_ARGS", "A footnote must contain text.");
+        if (ParseNotes(text).Count > 0) throw new Fail("BAD_ARGS", "Nested footnotes are not supported.");
+    }
+
+    static void FillNote(dynamic doc, dynamic note, string text, Bag format)
+    {
+        dynamic body = NoteBody(note);
+        body.Text = LiteralNoteText(Lines(text));
+        body = NoteBody(note);
+        if (format != null) WordFormat(body, format);
+        Bold(doc, body);
+        Mathify(doc, NoteBody(note));
+    }
+
+    static int InlineNotes(dynamic doc, dynamic range)
+    {
+        string text = (string)range.Text ?? "";
+        List<NoteToken> tokens = ParseNotes(text);
+        int start = (int)range.Start;
+        for (int n = tokens.Count - 1; n >= 0; n--)
+        {
+            NoteToken token = tokens[n];
+            dynamic spot = InStory(range, start + token.Start, start + token.Start + token.Length);
+            spot.Text = "";
+            spot.Collapse(1);
+            dynamic note = doc.Footnotes.Add(Range: spot, Text: " ");
+            FillNote(doc, note, token.Text, null);
+        }
+        // Remove only escapes used to quote a footnote opener, after parsing.
+        dynamic literal = range.Duplicate;
+        string[] escaped = { "\\[fn:", "\\\\footnote{" };
+        foreach (string marker in escaped)
+        {
+            literal = range.Duplicate;
+            while ((bool)literal.Find.Execute(FindText: marker, MatchCase: true, MatchWildcards: false, Forward: true, Wrap: 0))
+            {
+                literal.Text = marker.Substring(1);
+                literal.Collapse(0);
+                literal.End = range.End;
+                if ((int)literal.Start >= (int)literal.End) break;
+            }
+        }
+        return tokens.Count;
+    }
+
+    static string NoteOp(dynamic doc, string type, Bag op)
+    {
+        // Word may reopen a document in Reading Layout even with View.Type == Print.
+        // Its footnote settings reject both reads and edits in that mode.
+        try { doc.Windows[1].View.ReadingLayout = false; } catch (COMException) { }
+        if (type == "footnote_settings")
+        {
+            string rule = op.Need("numbering");
+            if (rule != "continuous" && rule != "section" && rule != "page") throw new Fail("BAD_ARGS", "numbering must be continuous, section or page.");
+            int section = op.Int("section", 0);
+            if (op.Has("section") && (section < 1 || section > (int)doc.Sections.Count)) throw new Fail("BAD_ARGS", "No such section.");
+            dynamic notes = section == 0 ? doc.Footnotes : doc.Sections[section].Range.FootnoteOptions;
+            notes.NumberingRule = rule == "continuous" ? 0 : rule == "section" ? 1 : 2;
+            return "footnote numbering: " + rule + (section == 0 ? " (document)" : " (section " + section + ")");
+        }
+        if (type == "insert_footnote")
+        {
+            string text = op.Need("text"); CheckNoteText(text);
+            if (op.Raw("expect") == null) throw new Fail("BAD_ARGS", "insert_footnote needs para and expect.");
+            dynamic p = Para(doc, op.Int("para", 0), op.Str("expect", null));
+            dynamic spot = p.Range.Duplicate;
+            spot.End = (int)spot.End - 1;
+            if (op.Has("find"))
+            {
+                string find = op.Need("find"), where = op.Str("where", "after");
+                int occurrence = op.Int("occurrence", 1);
+                if (find.Length == 0 || occurrence < 1 || (where != "before" && where != "after")) throw new Fail("BAD_ARGS", "Use nonempty find, occurrence >= 1 and where before/after.");
+                int end = (int)spot.End;
+                for (int i = 0; i < occurrence; i++)
+                {
+                    if (!(bool)spot.Find.Execute(FindText: find.Replace("^", "^^"), MatchCase: true, MatchWildcards: false, Forward: true, Wrap: 0)) throw new Fail("NOT_FOUND", "The requested occurrence was not found in this paragraph.");
+                    if (i + 1 < occurrence) { spot.Collapse(0); spot.End = end; }
+                }
+                spot.Collapse(where == "before" ? 1 : 0);
+            }
+            else
+            {
+                if (op.Has("where") || op.Has("occurrence")) throw new Fail("BAD_ARGS", "where/occurrence need find; without find the note is at paragraph end.");
+                spot.Collapse(0);
+            }
+            dynamic note = doc.Footnotes.Add(Range: spot, Text: " ");
+            FillNote(doc, note, text, op);
+            // WPS may return the append index until it next paginates/sorts the
+            // collection. Never expose that stale index as a usable identifier.
+            return "inserted native footnote (read footnotes for current collection indices)" + MathNote();
+        }
+        dynamic target = FindNote(doc, op);
+        if (type == "delete_footnote") { target.Delete(); return "deleted footnote; native numbering adjusts automatically"; }
+        if (op.Has("text"))
+        {
+            string text = op.Need("text"); CheckNoteText(text);
+            FillNote(doc, target, text, op);
+        }
+        else WordFormat(NoteBody(target), op);
+        return "edited footnote " + op.Int("footnote", 0) + MathNote();
+    }
+
+    static string MarkNotes(dynamic doc, dynamic range)
+    {
+        string text = (string)range.Text ?? "";
+        // WPS reports Index relative to Range.Footnotes, not Document.Footnotes.
+        // Always use the document collection's index in the public identifier.
+        for (int i = (int)doc.Footnotes.Count; i >= 1; i--)
+        {
+            dynamic note = doc.Footnotes[i], reference = note.Reference;
+            if ((int)reference.Start < (int)range.Start || (int)reference.End > (int)range.End) continue;
+            int at = ((string)InStory(range, (int)range.Start, (int)reference.Start).Text ?? "").Length;
+            int length = ((string)reference.Text ?? "").Length;
+            if (at >= 0 && at + length <= text.Length) text = text.Remove(at, length).Insert(at, "[footnote:" + i + "]");
+        }
+        return Clean(text);
+    }
+
+    static string NumberLabel(int number, int style)
+    {
+        if (style == 0) return number.ToString();
+        if ((style == 1 || style == 2) && number > 0 && number < 4000)
+        {
+            int[] values = { 1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1 };
+            string[] letters = { "M", "CM", "D", "CD", "C", "XC", "L", "XL", "X", "IX", "V", "IV", "I" };
+            string label = "";
+            for (int i = 0; i < values.Length; i++) while (number >= values[i]) { label += letters[i]; number -= values[i]; }
+            return style == 2 ? label.ToLowerInvariant() : label;
+        }
+        if ((style == 3 || style == 4) && number > 0)
+        {
+            string label = "";
+            while (number > 0) { number--; label = (char)('A' + number % 26) + label; number /= 26; }
+            return style == 4 ? label.ToLowerInvariant() : label;
+        }
+        if (style == 18 && number >= 1 && number <= 20) return ((char)(0x2460 + number - 1)).ToString();
+        if (style == 14)
+        {
+            string label = "";
+            foreach (char digit in number.ToString()) label += char.IsDigit(digit) ? (char)('０' + digit - '0') : digit;
+            return label;
+        }
+        if (style == 9 && number > 0)
+        {
+            string symbols = "*†‡§‖¶";
+            return new string(symbols[(number - 1) % symbols.Length], (number - 1) / symbols.Length + 1);
+        }
+        return null; // Do not claim a collection index is the displayed label for unsupported styles.
+    }
+
+    static List<object> ReadNotes(dynamic doc, int from, int to, bool all, bool full)
+    {
+        List<object> result = new List<object>();
+        int total = (int)doc.Footnotes.Count;
+        if (total == 0) return result;
+        bool reading = false;
+        try { reading = (bool)doc.Windows[1].View.ReadingLayout; if (reading) doc.Windows[1].View.ReadingLayout = false; } catch (COMException) { }
+        try
+        {
+            doc.Repaginate();
+            Dictionary<string, int> counters = new Dictionary<string, int>();
+            for (int i = 1; i <= total; i++)
+            {
+                dynamic note = doc.Footnotes[i], reference = note.Reference;
+                int at = (int)reference.Start, para = (int)doc.Range(0, at).Paragraphs.Count;
+                int section = (int)reference.Information[2], page = (int)reference.Information[3];
+                dynamic settings = doc.Sections[section].Range.FootnoteOptions;
+                int rule = (int)settings.NumberingRule;
+                int style = (int)settings.NumberStyle;
+                string key = rule == 2 ? "page:" + page : rule == 1 ? "section:" + section : "continuous";
+                int number;
+                if (!counters.TryGetValue(key, out number)) number = (int)settings.StartingNumber;
+                string raw = (string)reference.Text ?? "";
+                bool automatic = raw.IndexOf('\u0002') >= 0;
+                if (automatic) counters[key] = number + 1;
+                string label = automatic ? NumberLabel(number, style) : Clean(raw);
+                if (!all && (para < from || para > to)) continue;
+                string text = Clean((string)NoteBody(note).Text);
+                result.Add(new Dictionary<string, object> { { "i", i }, { "label", label }, { "numberStyle", style }, { "para", para }, { "offset", at - (int)doc.Paragraphs[para].Range.Start }, { "page", page }, { "section", section }, { "text", full ? text : Clip(text, 100) } });
+            }
+            return result;
+        }
+        finally { if (reading) { try { doc.Windows[1].View.ReadingLayout = true; } catch (COMException) { } } }
     }
 
     static object WordRead(dynamic doc, Bag a)
@@ -2088,6 +2354,8 @@ static class Program
             }
             result["table"] = n;
             result["cells"] = grid;
+            int firstPara = (int)doc.Range(0, table.Range.Start).Paragraphs.Count, lastPara = (int)doc.Range(0, table.Range.End).Paragraphs.Count;
+            result["footnotes"] = ReadNotes(doc, firstPara, lastPara, a.Flag("footnotes", false), a.Flag("full", false));
             return result;
         }
         int from = Math.Max(1, a.Int("from", 1)), count = Math.Max(1, Math.Min(400, a.Int("count", 120)));
@@ -2105,7 +2373,7 @@ static class Program
             for (int i = from; i < from + count && i <= total && p != null; i++)
             {
                 Dictionary<string, object> item = new Dictionary<string, object>();
-                string text = Clean((string)p.Range.Text);
+                string text = MarkNotes(doc, p.Range);
                 item["i"] = i;
                 item["text"] = full ? text : Clip(text, 100);
                 string style = null;
@@ -2168,6 +2436,7 @@ static class Program
         }
         result["from"] = from;
         result["items"] = items;
+        result["footnotes"] = ReadNotes(doc, from, shown, a.Flag("footnotes", false), full);
         if (shown < total) result["more"] = "Paragraphs " + (shown + 1) + "–" + total + " not shown; read them with \"from\".";
         return result;
     }
@@ -2175,7 +2444,8 @@ static class Program
     static dynamic WordRange(dynamic doc, Bag op)
     {
         dynamic scope;
-        if (op.Has("para"))
+        if (op.Has("footnote")) scope = NoteBody(FindNote(doc, op));
+        else if (op.Has("para"))
         {
             dynamic first = Para(doc, op.Int("para", 1), op.Str("expect", null));
             dynamic last = op.Has("to") ? Para(doc, op.Int("to", 1), null) : first;
@@ -2778,18 +3048,31 @@ static class Program
 
     static string WordOp(dynamic doc, string type, Bag op)
     {
+        if (type == "insert_footnote" || type == "edit_footnote" || type == "delete_footnote" || type == "footnote_settings") return NoteOp(doc, type, op);
         if (type == "replace_text")
         {
             string find = op.Need("find"), replace = Lines(op.Raw("replace") ?? "");
+            if (find.Length == 0) throw new Fail("BAD_ARGS", "find must not be empty.");
+            ParseNotes(replace);
             bool all = op.Flag("all", true), matchCase = op.Flag("matchCase", true);
             dynamic range = doc.Content;
             int count = 0;
             // "^" starts a special code in Word's find box; here the text is always meant literally.
             string literal = find.Replace("^", "^^");
-            bool rich = replace.IndexOf('$') >= 0 || replace.IndexOf("\\cite", StringComparison.Ordinal) >= 0;
+            dynamic preflight = doc.Content.Duplicate;
+            for (int check = 0; check < 5000 && (bool)preflight.Find.Execute(FindText: literal, MatchCase: matchCase, MatchWildcards: false, Forward: true, Wrap: 0); check++)
+            {
+                if ((int)preflight.Footnotes.Count > 0) throw new Fail("BAD_ARGS", "The replacement crosses an existing footnote reference. Replace a smaller piece of text.");
+                if (!all) break;
+                preflight.Collapse(0);
+                preflight.End = doc.Content.End;
+                if ((int)preflight.Start >= (int)preflight.End) break;
+            }
+            bool rich = replace.IndexOf('$') >= 0 || replace.IndexOf("\\cite", StringComparison.Ordinal) >= 0 || replace.IndexOf("[fn:", StringComparison.Ordinal) >= 0 || replace.IndexOf("\\footnote", StringComparison.Ordinal) >= 0;
             string extra = "";
             while (count < 5000 && (bool)range.Find.Execute(FindText: literal, MatchCase: matchCase, MatchWildcards: false, Forward: true, Wrap: 0))
             {
+                if ((int)range.Footnotes.Count > 0) throw new Fail("BAD_ARGS", "The replacement crosses an existing footnote reference. Replace a smaller piece of text.");
                 range.Text = replace;
                 if (rich)
                 {
@@ -2810,6 +3093,13 @@ static class Program
         {
             IList items = op.List("items");
             if (items == null) { items = new ArrayList(); items.Add(new Dictionary<string, object> { { "text", op.Need("text") } }); }
+            foreach (object raw in items)
+            {
+                Bag check = raw is string ? new Bag(new Dictionary<string, object> { { "text", raw } }) : new Bag(raw);
+                string value = Lines(check.Raw("text") ?? "");
+                ParseNotes(value);
+                foreach (string line in value.Split('\r')) ParseNotes(line);
+            }
             dynamic current = null;
             int made = 0, equations = 0, cites = 0, totalBefore = (int)doc.Paragraphs.Count;
             bool tabled = false;
@@ -2875,6 +3165,7 @@ static class Program
                     }
                     catch (Exception) { }
                     Whole(p.Range);
+                    InlineNotes(doc, p.Range);
                     cites += Cite(doc, p.Range);
                     equations += Mathify(doc, p.Range);
                     current = p;
@@ -2897,12 +3188,16 @@ static class Program
         if (type == "set_text")
         {
             dynamic p = Para(doc, op.Int("para", 0), op.Str("expect", null));
+            string replacement = Lines(op.Raw("text") ?? "");
+            ParseNotes(replacement);
+            if ((int)p.Range.Footnotes.Count > 0) throw new Fail("BAD_ARGS", "This paragraph contains native footnotes. Use replace_text on a smaller piece; set_text would discard the notes.");
             dynamic range = p.Range;
             range.MoveEnd(1, -1);
             range.Text = "";
-            Write(doc, (int)p.Range.Start, Lines(op.Raw("text") ?? ""));
+            int writeStart = (int)p.Range.Start;
+            Write(doc, writeStart, replacement);
             Whole(p.Range);
-            string built = Enrich(doc, p.Range);
+            string built = Enrich(doc, doc.Range(writeStart, writeStart + replacement.Length));
             return "paragraph " + op.Int("para", 0) + " rewritten" + built + Lint(Lines(op.Raw("text") ?? ""));
         }
         if (type == "format_text" || type == "set_style")
@@ -2915,14 +3210,15 @@ static class Program
         {
             if (!op.Has("para") && !op.Has("find")) throw new Fail("BAD_ARGS", "Say what to delete with \"para\" (and \"to\") or \"find\".");
             dynamic gone = WordRange(doc, op);
-            string note = "";
+            int removedNotes = (int)gone.Footnotes.Count;
+            string note = removedNotes > 0 ? " (" + removedNotes + " footnote(s) removed with it)" : "";
             // Word, asked to delete a range that is exactly a table (or ends on one), empties the cells and leaves the
             // grid standing; inside a cell of another table it refuses outright. A table that lies wholly within the
             // paragraphs named is taken out as a table first, and the text around it after that.
             int dropped = op.Has("find") ? 0 : DropTables(gone);
             if (dropped > 0)
             {
-                note = " (" + dropped + " table(s) removed with it)";
+                note += " (" + dropped + " table(s) removed with it)";
                 if ((int)gone.End <= (int)gone.Start) return "deleted, " + (int)doc.Paragraphs.Count + " paragraphs now" + note;
             }
             int countBefore = (int)doc.Paragraphs.Count;
@@ -3295,7 +3591,7 @@ static class Program
         {
             int end = (int)range.End;
             if (from >= end) break;
-            dynamic hit = doc.Range(from, end);
+            dynamic hit = InStory(range, from, end);
             if (!(bool)hit.Find.Execute(FindText: "\\*\\*[!\\*^13]@\\*\\*", MatchWildcards: true, Forward: true, Wrap: 0)) break;
             if ((int)hit.End > end || (int)hit.Start < from) break;
             string found = (string)hit.Text;
@@ -3377,8 +3673,8 @@ static class Program
     /// Formulas and citations written in the text of a range.
     static string Enrich(dynamic doc, dynamic range)
     {
-        int cites = Cite(doc, range), equations = Mathify(doc, range);
-        return (equations > 0 ? ", " + equations + " equation(s)" : "") + (cites > 0 ? ", " + cites + " citation(s)" : "") + MathNote();
+        int notes = InlineNotes(doc, range), cites = Cite(doc, range), equations = Mathify(doc, range);
+        return (notes > 0 ? ", " + notes + " footnote(s)" : "") + (equations > 0 ? ", " + equations + " equation(s)" : "") + (cites > 0 ? ", " + cites + " citation(s)" : "") + MathNote();
     }
 
     /// The reference list: "[n] ..." paragraphs whose numbers carry the bookmarks the citations point at.

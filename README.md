@@ -28,6 +28,7 @@
 | 迷你卡片 | AI 每次动手修改文档时，屏幕右下角出现一张小卡片：正在改哪个文档、改到第几项，带“查看”“快速”两个开关（“快速”亮起时文字一次写入，熄灭时逐字写入），点一下立即生效（正在进行的这一批也跟着变）。点“查看”会把文档窗口带到前台并跟随修改位置，按钮变成“查看中”；你切到别的窗口后它自动熄灭，再点一次回来。可拖动，不抢焦点；AI 读取、检查、保存期间卡片也留着，这一轮回答结束时消失 |
 | 原生公式 | AI 在文字里用 `$...$`（行内）和 `$$...$$`（单独一行）写 LaTeX，由 Word 自己的 LaTeX 解析器读成原生公式，所以常规 LaTeX 写法都能用（`\mathfrak`、`\bigoplus`、矩阵、分段函数等），不需要逐个符号适配；Word 不认识的写法退回插件自带的转换，仍失败的保留原文并在结果里提示。单独一行的公式末尾加 `\tag{1}` 即在右侧对齐编号。Word 的正文、表格单元格、题注、查找替换内容，以及 PowerPoint 的标题、正文、文本框里都可以写 |
 | 引用与参考文献 | 正文里写 `\cite{1}`、`\cite{2,5}`、`\cite{3-6}`，变成上标 [1]、[2,5]、[3-6]；`insert_references` 生成参考文献列表。引用是 Word 的交叉引用域，按住 Ctrl 点击跳到对应文献 |
+| 原生脚注 | Word / WPS 文字中插入、读取、编辑、删除真正的页底脚注，编号随增删自动重排，支持连续、每节或每页重编号。正文可内联写 `[fn:完整引注]` 或 `\footnote{完整引注}`；脚注支持加粗、局部斜体、字体字号和 `$...$` 原生公式，与 `\cite{}` 文末参考文献共存 |
 | 样式与版式 | 直接修改样式本身（标题用什么字体字号、是否自动编号，正文的字体、行距、首行缩进），所有用到它的段落一起变；设置纸张和页边距、页码、页眉、目录（保存时自动刷新）、某段另起一页。这些都不需要再去点 Word 的对话框 |
 | 填模板 | 报告模板常把正文放在大单元格里。这类表格会按段落展开给模型看，正文、公式、表格都写进单元格里面，而不是堆到文档末尾；新写的正文沿用旁边正文的字体、字号和行距 |
 | 规范的图表题注 | 插入表格或图片时给出题注，插件按规范排：自动编号（“表 1”“图 1”，是 Word 题注域，增删后自动重排）、居中、表题在上、图题在下；图表前后留出段间距，图片居中 |
@@ -96,9 +97,25 @@ AI 只有在调用保存时才写入文件，不会替你关闭文档。
 
 `office_edit` 支持的操作：
 
-- Word：`insert_diagram`（流程图、结构图：用 Word 自己的形状画在文档里，节点按行列摆放，连线自动走直角，画完仍可逐个编辑）、`insert_paragraphs`、`set_text`、`replace_text`、`format_text`、`delete_range`、`insert_table`、`set_cell`、`insert_image`、`set_image`、`format_table`、`insert_references`、`style_format`、`page_setup`、`page_numbers`、`header`、`page_break`、`insert_toc`、`update_fields`
+- Word：`insert_diagram`（流程图、结构图：用 Word 自己的形状画在文档里，节点按行列摆放，连线自动走直角，画完仍可逐个编辑）、`insert_paragraphs`、`set_text`、`replace_text`、`format_text`、`delete_range`、`insert_table`、`set_cell`、`insert_image`、`set_image`、`format_table`、`insert_references`、`insert_footnote`、`edit_footnote`、`delete_footnote`、`footnote_settings`、`style_format`、`page_setup`、`page_numbers`、`header`、`page_break`、`insert_toc`、`update_fields`
 - Excel：`write_range`（值或公式）、`format_range`、`autofit`、`insert_rows`、`delete_rows`、`add_sheet`、`rename_sheet`、`delete_sheet`、`add_chart`
 - PowerPoint：`theme`（配色之外还可定卡片、圆角、项目符号的样式，以及 LaTeX Beamer 风格的外框）、`slide`（成品版式；其中 `grid` 由 AI 按行列自由组合图表、数字、表格、步骤、引语等部件，不用给坐标）、`add_slide`、`set_text`、`format_text`、`add_textbox`、`add_image`、`add_smartart`、`add_table`、`add_shape`、`set_shape`、`delete_shape`、`delete_slide`、`move_slide`、`duplicate_slide`、`set_layout`、`set_background`、`set_notes`
+
+## 原生脚注
+
+法学、历史等使用脚注体例的文稿，可以直接要求 AI 使用原生脚注、每条写完整出处。它与 `\cite{}` 加文末参考文献是两种不同功能。
+
+```json
+{"op":"insert_paragraphs","items":[{"text":"有关这一观点的论证[fn:张三：《示例论文》，《示例期刊》2026年第1期，第12—15页。]，还可比较其他资料\\footnote{Author. Full citation, 2026, pp. 20–23.}。"}]}
+```
+
+修改已有文稿，先 `office_read {"footnotes":true,"full":true}` 读取全部脚注；新增时用 `insert_footnote {para, expect, find?, occurrence?, where?, text}`，不传 `find` 插在段末，传入时默认位于第一次匹配文字之后。编辑、删除用 `edit_footnote` / `delete_footnote`，必填 `footnote`（读取结果的集合序号）和 `expect`（脚注原文开头）。`edit_footnote` 可以更新 `text` 及格式；局部格式用 `format_text {footnote, expect, find, italic: true}` 等。
+
+正文中的 `[footnote:7]` 表示脚注集合第 7 条；每页或每节重编号时，页面显示的编号可能是 1，不能用它代替集合序号。增删后重新读取再操作。读取结果同时给出正文段落、段内位置、页与节；非常规编号样式无法可靠表示时，显示编号标为不可用，不会拿集合序号冒充。
+
+`footnote_settings {numbering: "continuous" | "section" | "page", section?}` 调整全篇或指定节的编号规则。普通插入保留文档原有规则和样式。脚注中可以写 `**加粗**` 和 `$E=mc^2$`；内联语法支持配对花括号/方括号及转义分隔符，不支持脚注嵌套，未闭合或空脚注会被拒绝。给脚注起始符加一个反斜杠可保留字面文本。
+
+含已有脚注的段落禁止整段 `set_text`，请用不跨过脚注引用标记的局部 `replace_text`；明确删除正文范围的 `delete_range` 会连同其中的脚注一起删除，并报告数量。
 
 ## 设置
 
@@ -128,7 +145,6 @@ AI 只有在调用保存时才写入文件，不会替你关闭文档。
 - PowerPoint 的表格单元格和 SmartArt 节点里放不了排好版的公式，公式在那里写成带上下标的文字。
 - 引用按编号书写，插入或删除文献后不会自动重新编号。
 - 兼容模式（Word 97–2003 格式）的文档里不能建立原生公式。
-- 目前不支持 WPS。
 - WPS 文字里的公式是原生公式（由插件把 LaTeX 转成公式格式后插入），带编号的公式其编号跟在公式后面而不是靠右；WPS 演示不接受公式（不能建立，也不能粘贴），那里的公式由 WPS 文字排好后以矢量图片叠在文字上：颜色和字号与所在文字一致，放大不糊，但不能编辑，也不能转回文字；移动或改写带公式的文本框后需要重写其文本以重新摆放。幻灯片里公式多的话，推荐用 PowerPoint。WPS 文字里窗口不会跟随滚动到修改位置；资源管理器里双击后台文档时的行为没有像微软 Office 那样专门处理。其余操作与微软 Office 相同。
 - 没有打开 Office 时处理文件、批量转换格式不在本插件范围内。
 
@@ -149,6 +165,8 @@ pnpm test
 pnpm run build
 node scripts/office-smoke.mjs        # 真实 Office：只操作脚本自己在临时目录里新建的文档
 node scripts/office-smoke.mjs --wps  # 同样的步骤，在 WPS Office 里
+node scripts/footnotes-smoke.mjs       # 原生脚注、公式、保存重开及跨页/跨节编号验收
+node scripts/footnotes-smoke.mjs --wps # WPS 文字独立验收
 ```
 
 ## 许可证
