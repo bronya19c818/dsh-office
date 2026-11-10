@@ -969,12 +969,13 @@ static class Program
     static void WaitReady(string kind, dynamic app)
     {
         if (kind != "excel") return;
-        for (int i = 0; i < 25; i++)
+        // A newly started WPS Spreadsheets takes a few seconds to become ready; a stuck one never does.
+        for (int i = 0; i < 40; i++)
         {
             try { if ((bool)app.Ready) return; } catch (COMException) { }
-            Thread.Sleep(200);
+            Thread.Sleep(250);
         }
-        throw new Fail("BUSY", "Excel is busy: the user is typing in a cell or has a dialog open. Nothing was changed; try again in a moment.");
+        throw new Fail("BUSY", "Excel is busy: the user is typing in a cell or has a dialog open, or the app was left in a stuck state. Nothing was changed; try again in a moment, and if it keeps saying this, close and reopen WPS Spreadsheets (or Excel).");
     }
 
     // ───────────────────────── commands ─────────────────────────
