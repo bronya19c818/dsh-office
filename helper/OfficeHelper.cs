@@ -2631,8 +2631,16 @@ static class Program
         if (op.Has("footnote")) scope = NoteBody(FindNote(doc, op));
         else if (op.Has("para"))
         {
-            dynamic first = Para(doc, Block(op, "para", 1), op.Str("expect", null));
-            dynamic last = op.Has("to") ? Para(doc, op.Int("to", 1), null) : first;
+            object paraArg = Block(op, "para", 1);
+            dynamic first = Para(doc, paraArg, op.Str("expect", null));
+            dynamic last = first;
+            if (op.Has("to"))
+            {
+                object toArg = Block(op, "to", 1);
+                if ((paraArg is string) != (toArg is string))
+                    throw new Fail("BAD_ARGS", "\"para\" and \"to\" must both be paragraph numbers or both be block ids.");
+                last = Para(doc, toArg, null);
+            }
             scope = doc.Range(first.Range.Start, last.Range.End);
         }
         else scope = doc.Content;
@@ -3240,22 +3248,32 @@ static class Program
             ParseNotes(replace);
             bool all = op.Flag("all", true), matchCase = op.Flag("matchCase", true);
             dynamic range = doc.Content;
+            if (op.Has("para"))
+            {
+                dynamic first = Para(doc, Block(op, "para", 1), op.Str("expect", null));
+                dynamic last = op.Has("to") ? Para(doc, Block(op, "to", 1), null) : first;
+                range = doc.Range(first.Range.Start, last.Range.End);
+            }
             int count = 0;
+            int scopeStart = (int)range.Start, scopeEnd = (int)range.End;
             // "^" starts a special code in Word's find box; here the text is always meant literally.
             string literal = find.Replace("^", "^^");
-            dynamic preflight = doc.Content.Duplicate;
+            dynamic preflight = range.Duplicate;
             for (int check = 0; check < 5000 && (bool)preflight.Find.Execute(FindText: literal, MatchCase: matchCase, MatchWildcards: false, Forward: true, Wrap: 0); check++)
             {
                 if ((int)preflight.Footnotes.Count > 0) throw new Fail("BAD_ARGS", "The replacement crosses an existing footnote reference. Replace a smaller piece of text.");
                 if (!all) break;
                 preflight.Collapse(0);
-                preflight.End = doc.Content.End;
+                preflight.End = scopeEnd;
                 if ((int)preflight.Start >= (int)preflight.End) break;
             }
             bool rich = replace.IndexOf('$') >= 0 || replace.IndexOf("\\cite", StringComparison.Ordinal) >= 0 || replace.IndexOf("[fn:", StringComparison.Ordinal) >= 0 || replace.IndexOf("\\footnote", StringComparison.Ordinal) >= 0;
             string extra = "";
-            while (count < 5000 && (bool)range.Find.Execute(FindText: literal, MatchCase: matchCase, MatchWildcards: false, Forward: true, Wrap: 0))
+            while (count < 5000)
             {
+                if (!(bool)range.Find.Execute(FindText: literal, MatchCase: matchCase, MatchWildcards: false, Forward: true, Wrap: 0)) break;
+                // WPS may run past the range it was given: stop rather than replace text outside the paragraph asked for.
+                if ((int)range.Start < scopeStart || (int)range.End > scopeEnd) break;
                 if ((int)range.Footnotes.Count > 0) throw new Fail("BAD_ARGS", "The replacement crosses an existing footnote reference. Replace a smaller piece of text.");
                 range.Text = replace;
                 if (rich)
@@ -3407,7 +3425,7 @@ static class Program
                 if ((int)gone.End <= (int)gone.Start) return "deleted, " + (int)doc.Paragraphs.Count + " paragraphs now" + note;
             }
             int countBefore = (int)doc.Paragraphs.Count;
-            bool several = op.Has("to") && op.Int("to", 0) > SafeInt(op, "para", 0), cells = false;
+            bool several = op.Has("to") && SafeInt(op, "to", 0) > SafeInt(op, "para", 0), cells = false;
             try { cells = several && !op.Has("find") && Truthy(gone.Information[12]); } catch (Exception) { }
             try
             {
