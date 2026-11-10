@@ -52,8 +52,10 @@
 | Excel 分析与图表 | `add_column` / `fill_formula` 把一个公式填满一列并报告出错的单元格；`pivot` 建数据透视表（行、列、值、筛选，日期按月、季、年分组，结果直接返回）；`add_chart` 支持柱状、条形、堆积、折线、饼图、圆环、散点、面积、雷达和组合图（次坐标轴），可设标题、坐标轴标题、数据标签、图例，结果里给出图表占用的单元格并提示与其他图表重叠；`set_chart`、`delete_chart`；`table`、`conditional_format`、`freeze`、`validation`。`office_render` 可以看带图表的区域，也可以单独看一张图表 |
 | 批量编辑 | `office_edit` 一次调用按顺序执行一批修改（写一整篇文档、填一张表加公式加图表、做几页幻灯片），中途某一项失败就停下并报告已完成哪些 |
 | 改错位置的防护 | Word 按“段落编号 + 这段开头的文字”定位。你刚改过导致编号对不上时，这一步会被拒绝并要求重新读取；改写和删除段落必须带开头文字 |
-| Word 一次撤销 | AI 的一批修改在 Word 里是一个撤销步骤，按一次 Ctrl+Z 整批撤回 |
-| 读结构 | Word：带编号的段落、标题级别、表格；Excel：工作表、单元格的值和公式；PowerPoint：每页的形状（名称、类型、位置、文字） |
+| 段落块标识 | `office_read` 带 `blocks: true` 时，每个段落附一个稳定 id（如 `#_dsh_3d1d160d`）。你插入或删除段落、甚至改了这一段的文字，id 仍指向同一段；写操作直接把这个 id 填进 `para`，段号漂移不再影响落点 |
+| 改动回退 | `office_revert` 退回上一批 AI 修改。Word 退一个撤销步，Excel 与 PowerPoint 用这一批之前留的副本原地恢复内容。你在这批之后改过文档时会被拒绝，免得把你的手改一起退掉 |
+| Word 一次撤销 | AI 的一批修改在 Word 里是一个撤销步骤，按一次 Ctrl+Z 整批撤回；也可以让 AI 用 `office_revert` 退回来 |
+| 读结构 | Word：带编号的段落（带 `blocks` 时附稳定 id）、标题级别、表格；带 `changes` 时给出你自上次读取以来改过的段落，只报旧文与新文，不必重读全文。Excel：工作表、单元格的值和公式；PowerPoint：每页的形状（名称、类型、位置、文字） |
 | 看排版 | `office_render` 把 Word 的一页、PowerPoint 的一页或 Excel 的一个区域渲染成图片给模型核对，不依赖截图，窗口在后台也能出图 |
 | 写错参数会被指出 | 操作里出现它不认识的字段时，结果里会点名哪个字段被忽略，而不是悄悄不生效 |
 | 零安装依赖 | 首次使用时用 Windows 自带的 .NET Framework `csc.exe` 编译一个小 helper（约 1 秒，之后缓存），不需要 Python、LibreOffice 或 node-gyp |
@@ -92,6 +94,7 @@ AI 只有在调用保存时才写入文件，不会替你关闭文档。
 | `office_edit` | 按顺序执行一批修改，不保存 |
 | `office_render` | 把一页 / 一张幻灯片 / 一个单元格区域渲染成图片；Word 和 PowerPoint 一次最多看 4 页，或用总览把全部页面拼成一张图 |
 | `office_save` | 保存；给出路径时另存为，扩展名为 `.pdf` 时导出 PDF；改完没看过成品时附带各页图片 |
+| `office_revert` | 退回上一批 AI 修改；你在这批之后改过文档时会被拒绝并说明原因 |
 | `office_close` | 关闭 AI 自己打开或新建的文档；你原本开着的文档会被拒绝，有未保存修改时必须明确说保存还是丢弃 |
 | `office_help` | 列出某个应用（Word / Excel / PowerPoint）下 `office_edit` 的全部操作和字段 |
 
@@ -100,6 +103,8 @@ AI 只有在调用保存时才写入文件，不会替你关闭文档。
 - Word：`insert_diagram`（流程图、结构图：用 Word 自己的形状画在文档里，节点按行列摆放，连线自动走直角，画完仍可逐个编辑）、`insert_paragraphs`、`set_text`、`replace_text`、`format_text`、`delete_range`、`insert_table`、`set_cell`、`insert_image`、`set_image`、`format_table`、`insert_references`、`insert_footnote`、`edit_footnote`、`delete_footnote`、`footnote_settings`、`style_format`、`page_setup`、`page_numbers`、`header`、`page_break`、`insert_toc`、`update_fields`
 - Excel：`write_range`（值或公式）、`format_range`、`autofit`、`insert_rows`、`delete_rows`、`add_sheet`、`rename_sheet`、`delete_sheet`、`add_chart`
 - PowerPoint：`theme`（配色之外还可定卡片、圆角、项目符号的样式，以及 LaTeX Beamer 风格的外框）、`slide`（成品版式；其中 `grid` 由 AI 按行列自由组合图表、数字、表格、步骤、引语等部件，不用给坐标）、`add_slide`、`set_text`、`format_text`、`add_textbox`、`add_image`、`add_smartart`、`add_table`、`add_shape`、`set_shape`、`delete_shape`、`delete_slide`、`move_slide`、`duplicate_slide`、`set_layout`、`set_background`、`set_notes`
+
+Word 的 `para` 可以写段号，也可以写 `office_read` 带 `blocks: true` 时读到的块 id（`#_dsh_...` 或 `_dsh_...`）。`delete_range` 的 `to` 同样接受块 id，两端要么都是段号、要么都是块 id，混用会报参数错误。`replace_text` 带 `para` 时只在这一段里查找替换。
 
 ## 原生脚注
 
@@ -137,8 +142,9 @@ AI 只有在调用保存时才写入文件，不会替你关闭文档。
 
 ## 限制
 
-- Excel 和 PowerPoint 里 AI 的修改无法用 Ctrl+Z 撤回（Excel 的外部修改不进撤销栈，并且会清空已有的撤销记录）。只有 Word 支持整批撤销。
-- 你正在单元格里输入、或 Office 开着模态对话框时，修改会被 Office 拒绝；插件等待约 5 秒后报告“应用忙”。
+- Excel 和 PowerPoint 里 AI 的修改无法用 Ctrl+Z 撤回（Excel 的外部修改不进撤销栈，并且会清空已有的撤销记录）。需要退回时用 `office_revert`，它退的是上一批 AI 修改；Word 走自己的撤销步，Excel 与 PowerPoint 用这一批之前留的副本原地恢复。Excel 只恢复值与公式，PowerPoint 只恢复幻灯片：这一批之后新建的工作表、图表、单元格格式、备注和动画不在覆盖范围内。
+- 文档改动事件（`DocumentChange`）只表示“文档变了”，具体改了哪一段仍由读取时比对得出。老版本 Office、受保护文档或订阅失败时，`changes` 照常工作，只是每次读取都要比对一遍。
+- 你正在单元格里输入、或 Office 开着模态对话框时，修改会被 Office 拒绝；插件等待约 10 秒后报告“应用忙”。如果一直这样，关掉 WPS 表格（或 Excel）再重开。
 - Excel 区域的图片是通过剪贴板取得的，渲染时剪贴板里的文字会被保留，图片、文件等其他内容会丢失。
 - 公式由插件自己启动的一份不可见的 Word 解析，不动你正在用的 Word。它只在一批修改期间存在（启动约 1 秒），这一批结束就关闭；万一插件中途被强行结束而留下了它，下次插件启动时会清掉。Excel 里还不能写原生公式。
 - PowerPoint 的公式经剪贴板放入幻灯片。做法与电脑控制插件一致：先把剪贴板上的全部内容存起来，每写完一段文字立刻放回，且不进剪贴板历史；这期间你自己复制了新内容的话，以你的为准，不会被覆盖。Word 复制公式的那一下仍会出现在 Win+V 历史里。
@@ -154,7 +160,9 @@ AI 只有在调用保存时才写入文件，不会替你关闭文档。
 
 ## 工作原理
 
-宿主侧是一个 Cordis 插件，注册上面六个工具。它启动一个常驻的小程序（`helper/OfficeHelper.cs`，C# 5，运行时由系统自带的 `csc.exe` 编译，按源码哈希缓存在 `%LOCALAPPDATA%\dsh-office\`），通过标准输入输出逐行交换 JSON。helper 用 COM 附着到正在运行的 Office 应用（没有运行则启动并显示出来），按后期绑定调用它们的对象模型。每条命令结束后 helper 释放全部 COM 引用，这样你关掉 Office 时进程能正常退出。
+宿主侧是一个 Cordis 插件，注册上面九个工具。它启动一个常驻的小程序（`helper/OfficeHelper.cs`，C# 5，运行时由系统自带的 `csc.exe` 编译，按源码哈希缓存在 `%LOCALAPPDATA%\dsh-office\`），通过标准输入输出逐行交换 JSON。helper 用 COM 附着到正在运行的 Office 应用（没有运行则启动并显示出来），按后期绑定调用它们的对象模型。每条命令结束后 helper 释放全部 COM 引用，这样你关掉 Office 时进程能正常退出。
+
+段落块 id 是打在段末的零宽书签（`_dsh_` 开头），它跟着段落走，不跟着段号走；读取时优先复用该位置已有的书签，写完后重新绑回新范围。helper 附着到 Word 或 WPS 文字后还会订阅 `DocumentChange` 事件，回调里只置一个标记，等下一次读取时再比对改动，事件订阅不上就退回每次读取都比对。Excel 与 PowerPoint 没有可用的撤销栈，每一批修改前会把文档另存一份副本到 `%LOCALAPPDATA%\dsh-office\batches\`，`office_revert` 用这份副本原地恢复。
 
 ## 开发
 
