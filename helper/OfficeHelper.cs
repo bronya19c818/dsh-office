@@ -2045,6 +2045,50 @@ static class Program
         }
     }
 
+    /// A paragraph number, or a block id as office_read blocks:true gives it ("_dsh_..." or "#_dsh_...").
+    static object Block(Bag op, string key, int fallback)
+    {
+        object raw = op.Raw(key);
+        return raw ?? fallback;
+    }
+
+    static dynamic ParaByBlock(dynamic doc, string block, string expect)
+    {
+        string name = block.Trim();
+        if (name.StartsWith("#", StringComparison.Ordinal)) name = name.Substring(1);
+        if (!(bool)doc.Bookmarks.Exists(name))
+            throw new Fail("ANCHOR_MISSING", "There is no block \"" + block + "\" in this document. Read it again with blocks:true for the current ids.");
+        dynamic p = doc.Bookmarks.Item(name).Range.Paragraphs[1];
+        Follow(doc, p.Range);
+        if (expect != null)
+        {
+            string text = Squash(MarkNotes(doc, p.Range)), want = Squash(expect);
+            if (want.Length == 0 ? text.Length > 0 : !text.StartsWith(want, StringComparison.Ordinal))
+                throw new Fail("ANCHOR_MISMATCH", "Block " + name + " now starts with \"" + Clip(Clean((string)p.Range.Text), 40) + "\", not \"" + Clip(expect, 40) + "\". It was edited: read again with changes:true.");
+        }
+        return p;
+    }
+
+    /// Writing a paragraph's text can drop the bookmark that names it; put it back on the new range so the id
+    /// stays the same for the next operation.
+    static void KeepBlock(dynamic doc, Bag op, dynamic paragraph)
+    {
+        string raw = op.Raw("para") as string;
+        if (raw == null) return;
+        string name = raw.Trim();
+        if (name.StartsWith("#", StringComparison.Ordinal)) name = name.Substring(1);
+        if (!name.StartsWith("_dsh_", StringComparison.Ordinal)) return;
+        try { if ((bool)doc.Bookmarks.Exists(name)) doc.Bookmarks.Item(name).Delete(); } catch (Exception) { }
+        try { doc.Bookmarks.Add(name, paragraph.Range); } catch (Exception) { }
+    }
+
+    static dynamic Para(dynamic doc, object index, string expect)
+    {
+        string block = index as string;
+        if (block != null) return ParaByBlock(doc, block, expect);
+        return Para(doc, Convert.ToInt32(index, System.Globalization.CultureInfo.InvariantCulture), expect);
+    }
+
     static dynamic Para(dynamic doc, int index, string expect)
     {
         int total = (int)doc.Paragraphs.Count;
@@ -3306,11 +3350,11 @@ static class Program
         }
         if ((type == "set_text" || (type == "delete_range" && op.Has("para"))) && op.Raw("expect") == null)
         {
-            throw new Fail("BAD_ARGS", type + " needs \"expect\": the first words of paragraph " + op.Int("para", 0) + " as you last read it (\"\" for an empty paragraph), so that the wrong paragraph is never changed.");
+            throw new Fail("BAD_ARGS", type + " needs \"expect\": the first words of paragraph " + op.Str("para", "0") + " as you last read it (\"\" for an empty paragraph), so that the wrong paragraph is never changed.");
         }
         if (type == "set_text")
         {
-            dynamic p = Para(doc, op.Int("para", 0), op.Str("expect", null));
+            dynamic p = Para(doc, Block(op, "para", 0), op.Str("expect", null));
             string replacement = Lines(op.Raw("text") ?? "");
             ParseNotes(replacement);
             if ((int)p.Range.Footnotes.Count > 0) throw new Fail("BAD_ARGS", "This paragraph contains native footnotes. Use replace_text on a smaller piece; set_text would discard the notes.");
@@ -3320,8 +3364,9 @@ static class Program
             int writeStart = (int)p.Range.Start;
             Write(doc, writeStart, replacement);
             Whole(p.Range);
+            KeepBlock(doc, op, p);
             string built = Enrich(doc, doc.Range(writeStart, writeStart + replacement.Length));
-            return "paragraph " + op.Int("para", 0) + " rewritten" + built + Lint(Lines(op.Raw("text") ?? ""));
+            return "paragraph " + op.Str("para", "0") + " rewritten" + built + Lint(Lines(op.Raw("text") ?? ""));
         }
         if (type == "format_text" || type == "set_style")
         {
