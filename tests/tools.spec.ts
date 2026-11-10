@@ -108,7 +108,7 @@ describe('office tools', () => {
   })
 
   it('registers the tools', () => {
-    expect(setup(() => null).tools.map(tool => tool.name)).toEqual(['office_open', 'office_status', 'office_read', 'office_edit', 'office_help', 'office_render', 'office_save', 'office_close'])
+    expect(setup(() => null).tools.map(tool => tool.name)).toEqual(['office_open', 'office_status', 'office_read', 'office_edit', 'office_help', 'office_render', 'office_save', 'office_revert', 'office_close'])
   })
 
   it('opens by path and reports how', async () => {
