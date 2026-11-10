@@ -13,9 +13,10 @@ export const appName = (on: { app: AppKind; suite?: string }): string => (on.sui
 export interface DocInfo { app: AppKind; suite?: string; name: string; path: string | null; saved: boolean; active: boolean; readOnly?: boolean; how?: 'attached' | 'opened' | 'created'; background?: boolean }
 export interface AppStatus { app: AppKind; suite?: string; installed: boolean; running: boolean; version?: string; error?: string; documents: DocInfo[] }
 
-export interface WordItem { i: number; text?: string; style?: string; level?: number; to?: number; table?: number; size?: string; open?: boolean; inTable?: boolean }
+export interface WordItem { i: number; id?: string; text?: string; style?: string; level?: number; to?: number; table?: number; size?: string; open?: boolean; inTable?: boolean }
+export interface WordChange { i: number; was: string | null; now: string | null }
 export interface WordFootnote { i: number; label: string | null; numberStyle: number; para: number; offset: number; page: number; section: number; text: string }
-export interface WordRead { paragraphs: number; tables: number; pages?: number; from?: number; items?: WordItem[]; footnotes?: WordFootnote[]; more?: string; table?: number; cells?: Array<Array<string | null>> }
+export interface WordRead { paragraphs: number; tables: number; pages?: number; from?: number; items?: WordItem[]; footnotes?: WordFootnote[]; more?: string; table?: number; cells?: Array<Array<string | null>>; changed?: number; changes?: WordChange[]; changedFirst?: boolean }
 export interface ExcelRead { sheets: Array<{ name: string; used: string; charts?: number }>; sheet: string; range: string; values: unknown[][]; formulas?: Array<{ cell: string; formula: string }>; clipped?: string; objects?: string[]; profile?: string[] }
 export interface PptRead { slides: number; width: number; height: number; items: Array<{ slide: number; layout?: string; plain?: number; shapes: Array<{ name: string; id?: number; type: string; box: number[]; text?: string }> }> }
 export interface EditResult { done: string[]; total: number; failed?: { index: number; op: string; error: string; code: string } }
@@ -55,9 +56,14 @@ export function formatWord(read: WordRead): string {
       return `${item.i}–${item.to} [${name}, ${item.size}]${item.open ? ' holds the text below; write inside it by paragraph number:' : ''}`
     }
     const tag = item.level !== undefined ? `H${item.level}` : item.style !== undefined && !BODY_STYLES.has(item.style.toLowerCase()) ? item.style : ''
-    return `${item.inTable ? '  ' : ''}${item.i}${tag ? ` [${tag}]` : ''} ${item.text ? item.text : '(empty)'}`
+    return `${item.inTable ? '  ' : ''}${item.i}${tag ? ` [${tag}]` : ''} ${item.text ? item.text : '(empty)'}${item.id ? ` #${item.id}` : ''}`
   })
-  return [head, ...lines, ...(read.more ? [read.more] : []), ...notes].join('\n')
+  const changes = read.changedFirst
+    ? ['This is the first read: the document is snapshotted, so a later read with changes:true reports what the user changed.']
+    : read.changes?.length
+      ? [`Since the last read the user changed ${read.changed} paragraph(s):`, ...read.changes.map(change => `${change.i}: ${change.was === null ? '(added)' : change.was} -> ${change.now === null ? '(removed)' : change.now}`)]
+      : []
+  return [head, ...lines, ...(read.more ? [read.more] : []), ...changes, ...notes].join('\n')
 }
 
 const cell = (value: unknown): string => value === null || value === undefined ? '' : String(value)

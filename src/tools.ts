@@ -357,6 +357,8 @@ export function createTools(host: ToolHost): ToolDefinition[] {
       count: { type: 'integer', description: 'Word: how many paragraphs (default 120, max 400).' },
       full: { type: 'boolean', description: 'Word / PowerPoint: full text instead of the first 100 / 200 characters of each paragraph / shape.' },
       footnotes: { type: 'boolean', description: 'Word: include every native footnote, independent of the body paragraph range. Default: only notes anchored in the paragraphs read. Use full:true for complete note text.' },
+      blocks: { type: 'boolean', description: 'Word: also give each paragraph a stable id (a bookmark such as #_dsh_1a2b3c4d) that keeps pointing at the same paragraph when text is inserted above it or its own text changes. Use the id to recognise a paragraph across reads; edits still address paragraphs by number.' },
+      changes: { type: 'boolean', description: 'Word: report what the user changed since your last read as a paragraph-level diff, so you can pick up their edits without re-reading the whole document. The first call only records a snapshot.' },
       table: { type: 'integer', description: 'Word: read the cells of table N.' },
       sheet: { type: 'string', description: 'Excel: sheet name.' },
       range: { type: 'string', description: 'Excel: A1-style range, e.g. A1:F40.' },

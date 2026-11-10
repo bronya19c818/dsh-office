@@ -2328,6 +2328,100 @@ static class Program
         finally { if (reading) { try { doc.Windows[1].View.ReadingLayout = true; } catch (COMException) { } } }
     }
 
+    // ───────────────────────── blocks and user changes ─────────────────────────
+
+    /// The paragraph texts a document had when the agent last looked at it. A read with "changes" compares against
+    /// this to say what the user changed in between, instead of re-sending the whole document.
+    static readonly Dictionary<string, List<string>> Snapshots =
+        new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+
+    static string Hash8(string text)
+    {
+        using (System.Security.Cryptography.SHA1 sha = System.Security.Cryptography.SHA1.Create())
+        {
+            byte[] bytes = sha.ComputeHash(Encoding.UTF8.GetBytes(text));
+            string hex = "";
+            for (int i = 0; i < 4; i++) hex += bytes[i].ToString("x2");
+            return hex;
+        }
+    }
+
+    /// A paragraph's stable name: a bookmark that follows its range when text is inserted above, so the name keeps
+    /// pointing at the same paragraph even after its text changes. An existing bookmark at that position wins;
+    /// a new one is named after the text hash, which only serves to keep names unique. WPS takes two arguments only:
+    /// its Bookmarks.Add has no hidden flag.
+    static string BlockId(dynamic doc, dynamic paragraph, Dictionary<int, string> known)
+    {
+        int start = (int)paragraph.Range.Start;
+        string taken;
+        if (known != null && known.TryGetValue(start, out taken)) return taken;
+        string text = Squash(Clean((string)paragraph.Range.Text));
+        string hash = Hash8(text);
+        string name = "_dsh_" + hash;
+        int suffix = 1;
+        for (;;)
+        {
+            if (!(bool)doc.Bookmarks.Exists(name))
+            {
+                doc.Bookmarks.Add(name, paragraph.Range);
+                if (known != null) known[start] = name;
+                return name;
+            }
+            dynamic bookmark = doc.Bookmarks.Item(name);
+            if ((int)bookmark.Range.Start == start) { if (known != null) known[start] = name; return name; }
+            suffix++;
+            name = "_dsh_" + hash + "_" + suffix;
+            if (suffix > 8) return null;
+        }
+    }
+
+    static List<string> ParagraphTexts(dynamic doc)
+    {
+        List<string> texts = new List<string>();
+        foreach (dynamic p in doc.Paragraphs) texts.Add(Squash(Clean((string)p.Range.Text)));
+        return texts;
+    }
+
+    static void RememberDoc(dynamic doc)
+    {
+        try { Snapshots[(string)doc.FullName] = ParagraphTexts(doc); } catch (Exception) { }
+    }
+
+    /// What the user changed since the last look: paragraphs whose text differs, plus inserted or removed ones.
+    static Dictionary<string, object> Changes(dynamic doc)
+    {
+        Dictionary<string, object> result = new Dictionary<string, object>();
+        List<string> now = ParagraphTexts(doc);
+        result["paragraphs"] = now.Count;
+        string full = "";
+        try { full = (string)doc.FullName; } catch (Exception) { }
+        List<string> before;
+        if (full.Length == 0 || !Snapshots.TryGetValue(full, out before))
+        {
+            if (full.Length > 0) Snapshots[full] = now;
+            result["first"] = true;
+            return result;
+        }
+        List<object> changed = new List<object>();
+        int n = Math.Max(before.Count, now.Count);
+        for (int i = 0; i < n; i++)
+        {
+            string was = i < before.Count ? before[i] : null;
+            string current = i < now.Count ? now[i] : null;
+            if (was == current) continue;
+            Dictionary<string, object> item = new Dictionary<string, object>();
+            item["i"] = i + 1;
+            item["was"] = was == null ? null : Clip(was, 80);
+            item["now"] = current == null ? null : Clip(current, 80);
+            changed.Add(item);
+            if (changed.Count >= 40) break;
+        }
+        Snapshots[full] = now;
+        result["changed"] = changed.Count;
+        result["changes"] = changed;
+        return result;
+    }
+
     static object WordRead(dynamic doc, Bag a)
     {
         Dictionary<string, object> result = new Dictionary<string, object>();
@@ -2360,7 +2454,24 @@ static class Program
         }
         int from = Math.Max(1, a.Int("from", 1)), count = Math.Max(1, Math.Min(400, a.Int("count", 120)));
         bool full = a.Flag("full", false);
+        bool blocks = a.Flag("blocks", false);
+        bool changes = a.Flag("changes", false);
         List<object> items = new List<object>();
+        Dictionary<int, string> blockIndex = null;
+        if (blocks)
+        {
+            blockIndex = new Dictionary<int, string>();
+            try
+            {
+                foreach (dynamic bookmark in doc.Bookmarks)
+                {
+                    string name = (string)bookmark.Name;
+                    if (!name.StartsWith("_dsh_", StringComparison.Ordinal)) continue;
+                    try { blockIndex[(int)bookmark.Range.Start] = name; } catch (Exception) { }
+                }
+            }
+            catch (Exception) { }
+        }
         int shown = from - 1, openTable = -1;
         // Tables whose paragraphs are listed one by one, already announced: coming back to one after a table inside it
         // does not announce it again.
@@ -2376,6 +2487,11 @@ static class Program
                 string text = MarkNotes(doc, p.Range);
                 item["i"] = i;
                 item["text"] = full ? text : Clip(text, 100);
+                if (blocks)
+                {
+                    string blockId = BlockId(doc, p, blockIndex);
+                    if (blockId != null) item["id"] = blockId;
+                }
                 string style = null;
                 try { style = (string)p.Style.NameLocal; } catch (Exception) { }
                 if (style != null && style == titleStyle) item["style"] = "Title";
@@ -2437,6 +2553,13 @@ static class Program
         result["from"] = from;
         result["items"] = items;
         result["footnotes"] = ReadNotes(doc, from, shown, a.Flag("footnotes", false), full);
+        if (changes)
+        {
+            Dictionary<string, object> diff = Changes(doc);
+            if (diff.ContainsKey("first")) result["changedFirst"] = true;
+            result["changed"] = diff["changed"];
+            result["changes"] = diff["changes"];
+        }
         if (shown < total) result["more"] = "Paragraphs " + (shown + 1) + "–" + total + " not shown; read them with \"from\".";
         return result;
     }
@@ -9714,6 +9837,8 @@ static class Program
                 if (uncited.Length > 0) done.Add(uncited);
             }
             if (undo != null) { try { undo.EndCustomRecord(); } catch (COMException) { } }
+            // The agent's own edits are not user changes: the snapshot is taken after them.
+            if (kind == "word") RememberDoc(doc);
         }
         if (card) { Card.Hold = false; Card.Report("AI 已编辑 " + docName, Linger); }
         result["done"] = done;
