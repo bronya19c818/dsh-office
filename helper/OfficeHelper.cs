@@ -2052,6 +2052,15 @@ static class Program
         return raw ?? fallback;
     }
 
+    /// A number where a block id may also be given: falls back instead of failing, for places that only compare or report.
+    static int SafeInt(Bag op, string key, int fallback)
+    {
+        object raw = op.Raw(key);
+        if (raw == null) return fallback;
+        int n;
+        return int.TryParse(Convert.ToString(raw, System.Globalization.CultureInfo.InvariantCulture), out n) ? n : fallback;
+    }
+
     static dynamic ParaByBlock(dynamic doc, string block, string expect)
     {
         string name = block.Trim();
@@ -2079,7 +2088,7 @@ static class Program
         if (name.StartsWith("#", StringComparison.Ordinal)) name = name.Substring(1);
         if (!name.StartsWith("_dsh_", StringComparison.Ordinal)) return;
         try { if ((bool)doc.Bookmarks.Exists(name)) doc.Bookmarks.Item(name).Delete(); } catch (Exception) { }
-        try { doc.Bookmarks.Add(name, paragraph.Range); } catch (Exception) { }
+        try { AddBlock(doc, name, paragraph); } catch (Exception) { }
     }
 
     static dynamic Para(dynamic doc, object index, string expect)
@@ -2251,7 +2260,7 @@ static class Program
         {
             string text = op.Need("text"); CheckNoteText(text);
             if (op.Raw("expect") == null) throw new Fail("BAD_ARGS", "insert_footnote needs para and expect.");
-            dynamic p = Para(doc, op.Int("para", 0), op.Str("expect", null));
+            dynamic p = Para(doc, Block(op, "para", 0), op.Str("expect", null));
             dynamic spot = p.Range.Duplicate;
             spot.End = (int)spot.End - 1;
             if (op.Has("find"))
@@ -2394,9 +2403,17 @@ static class Program
     /// pointing at the same paragraph even after its text changes. An existing bookmark at that position wins;
     /// a new one is named after the text hash, which only serves to keep names unique. WPS takes two arguments only:
     /// its Bookmarks.Add has no hidden flag.
+    /// A bookmark on a paragraph's end mark rather than over its whole range: inserting a paragraph above it then
+    /// leaves the bookmark where it was instead of stretching it over the new paragraph.
+    static void AddBlock(dynamic doc, string name, dynamic paragraph)
+    {
+        int at = (int)paragraph.Range.End - 1;
+        doc.Bookmarks.Add(name, doc.Range(at, at));
+    }
+
     static string BlockId(dynamic doc, dynamic paragraph, Dictionary<int, string> known)
     {
-        int start = (int)paragraph.Range.Start;
+        int start = (int)paragraph.Range.End - 1;
         string taken;
         if (known != null && known.TryGetValue(start, out taken)) return taken;
         string text = Squash(Clean((string)paragraph.Range.Text));
@@ -2407,7 +2424,7 @@ static class Program
         {
             if (!(bool)doc.Bookmarks.Exists(name))
             {
-                doc.Bookmarks.Add(name, paragraph.Range);
+                AddBlock(doc, name, paragraph);
                 if (known != null) known[start] = name;
                 return name;
             }
@@ -2614,7 +2631,7 @@ static class Program
         if (op.Has("footnote")) scope = NoteBody(FindNote(doc, op));
         else if (op.Has("para"))
         {
-            dynamic first = Para(doc, op.Int("para", 1), op.Str("expect", null));
+            dynamic first = Para(doc, Block(op, "para", 1), op.Str("expect", null));
             dynamic last = op.Has("to") ? Para(doc, op.Int("to", 1), null) : first;
             scope = doc.Range(first.Range.Start, last.Range.End);
         }
@@ -2705,7 +2722,7 @@ static class Program
             if ((string)last.Range.Text == "\r" && !Truthy(last.Range.Information[12])) return last;
             return After(doc, last);
         }
-        dynamic anchor = where == "start" ? doc.Paragraphs[1] : Para(doc, op.Int("para", 1), op.Str("expect", null));
+        dynamic anchor = where == "start" ? doc.Paragraphs[1] : Para(doc, Block(op, "para", 1), op.Str("expect", null));
         if (where == "after") return After(doc, anchor);
         if (where != "before" && where != "start") throw new Fail("BAD_ARGS", "\"where\" must be after, before, start or end.");
         int start = (int)anchor.Range.Start;
@@ -3288,7 +3305,7 @@ static class Program
                     else
                     {
                         string where = place.Str("where", place.Has("para") ? "after" : "end");
-                        int para = place.Int("para", 1);
+                        int para = SafeInt(place, "para", 1);
                         if (place.Has("para")) inner["para"] = para;
                         inner["where"] = where;
                         if (place.Has("expect")) inner["expect"] = place.Raw("expect");
@@ -3390,7 +3407,7 @@ static class Program
                 if ((int)gone.End <= (int)gone.Start) return "deleted, " + (int)doc.Paragraphs.Count + " paragraphs now" + note;
             }
             int countBefore = (int)doc.Paragraphs.Count;
-            bool several = op.Has("to") && op.Int("to", 0) > op.Int("para", 0), cells = false;
+            bool several = op.Has("to") && op.Int("to", 0) > SafeInt(op, "para", 0), cells = false;
             try { cells = several && !op.Has("find") && Truthy(gone.Information[12]); } catch (Exception) { }
             try
             {
@@ -3423,7 +3440,7 @@ static class Program
             if (op.Has("para") && !op.Has("expect") && !op.Flag("nested", false) && !Nested)
             {
                 bool inside = false;
-                int wanted = op.Int("para", 0);
+                int wanted = SafeInt(op, "para", 0);
                 try { if (wanted >= 1 && wanted <= (int)doc.Paragraphs.Count) inside = (bool)doc.Paragraphs[wanted].Range.Information[12]; } catch (Exception) { }
                 if (inside) throw new Fail("STALE", "Paragraph " + wanted + " lies inside a table, so this table would be put into one of its cells. If a table was inserted earlier in this call, the numbers you read before no longer hold after it: every cell of a table is a paragraph. Read the document again and use the new numbers (or, in one call, insert from the END of the document towards the start, which leaves the earlier numbers valid). To put a table into a cell on purpose, pass nested: true.");
             }
@@ -3547,9 +3564,9 @@ static class Program
         if (type == "insert_toc") return Toc(doc, op);
         if (type == "page_break")
         {
-            dynamic p = Para(doc, op.Int("para", 0), op.Str("expect", null));
+            dynamic p = Para(doc, Block(op, "para", 0), op.Str("expect", null));
             p.Range.ParagraphFormat.PageBreakBefore = op.Flag("on", true) ? -1 : 0;
-            return "paragraph " + op.Int("para", 0) + " now starts a new page";
+            return "paragraph " + SafeInt(op, "para", 0) + " now starts a new page";
         }
         if (type == "header")
         {
@@ -3573,8 +3590,8 @@ static class Program
             if (op.Has("para") && !op.Has("table"))
             {
                 // A table inside a cell of another has no number of its own: any paragraph of it names it.
-                dynamic inside = Para(doc, op.Int("para", 1), op.Str("expect", null));
-                if (!Truthy(inside.Range.Information[12])) throw new Fail("NOT_FOUND", "Paragraph " + op.Int("para", 1) + " is not in a table.");
+                dynamic inside = Para(doc, Block(op, "para", 1), op.Str("expect", null));
+                if (!Truthy(inside.Range.Information[12])) throw new Fail("NOT_FOUND", "Paragraph " + SafeInt(op, "para", 1) + " is not in a table.");
                 table = inside.Range.Tables[1];
                 n = 0;
             }
@@ -3595,7 +3612,7 @@ static class Program
             if (op.Has("autofit")) { string fit = op.Need("autofit"); try { table.AutoFitBehavior(fit == "content" ? 1 : fit == "fixed" ? 0 : 2); } catch (COMException) { } }
             string kept = "";
             if (op.Has("keepTogether") && (op.Str("keepTogether", "") == "force" || op.On("keepTogether"))) kept = KeepTable(doc, table, op.Str("keepTogether", "") == "force");
-            return (n > 0 ? "table " + n : "the table at paragraph " + op.Int("para", 1)) + " formatted" + kept;
+            return (n > 0 ? "table " + n : "the table at paragraph " + SafeInt(op, "para", 1)) + " formatted" + kept;
         }
         if (type == "set_image")
         {
@@ -3603,8 +3620,8 @@ static class Program
             dynamic picture = null;
             if (op.Has("para"))
             {
-                dynamic range = Para(doc, op.Int("para", 1), null).Range;
-                if ((int)range.InlineShapes.Count == 0) throw new Fail("NOT_FOUND", "Paragraph " + op.Int("para", 1) + " holds no picture. Pictures show as \"/\" in office_read.");
+                dynamic range = Para(doc, Block(op, "para", 1), null).Range;
+                if ((int)range.InlineShapes.Count == 0) throw new Fail("NOT_FOUND", "Paragraph " + SafeInt(op, "para", 1) + " holds no picture. Pictures show as \"/\" in office_read.");
                 picture = range.InlineShapes[1];
             }
             else
