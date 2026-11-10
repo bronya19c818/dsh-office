@@ -517,6 +517,24 @@ export function createTools(host: ToolHost): ToolDefinition[] {
   }))
 
   tools.push(defineTool({
+    name: 'office_revert',
+    description: 'Revert the last batch of agent edits to an open Word document, as one step. Refused with STALE_BATCH when the document changed after that batch (the user edited it), because reverting would also undo their edits: offer to save a copy first instead.',
+    parameters: {
+      doc: DOC,
+      app: APP,
+    },
+    output,
+    timeoutMs: 60_000,
+    async execute(args): Promise<Value> {
+      const input = args as Target
+      const on = target(input)
+      const result = await helper.call<{ reverted: string; undone: boolean; paragraphs: number }>('revert', { ...on }, 50_000)
+      return { text: `${result.undone ? 'Reverted' : 'Nothing to undo for'} batch ${result.reverted}; ${result.paragraphs} paragraph(s) now.` }
+    },
+    presentCall: () => card('撤回上一批修改'),
+  }))
+
+  tools.push(defineTool({
     name: 'office_close',
     description: 'Close a document that YOU opened or created with office_open (a scratch file, a source you are done with). Documents the user already had open are theirs and are refused. Unsaved changes are refused unless you pass save.',
     parameters: {

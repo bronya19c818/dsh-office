@@ -922,6 +922,26 @@ static class Program
             if (kind != "word") throw new Fail("BAD_ARGS", "Only Word keeps the agent's edits on its undo stack.");
             return (bool)doc.Undo(Math.Max(1, a.Int("times", 1))) ? "undone" : "nothing to undo";
         }
+        if (cmd == "revert")
+        {
+            if (kind != "word") throw new Fail("BAD_ARGS", "Reverting a recorded batch is only available for Word so far.");
+            string full = (string)doc.FullName;
+            List<Batch> list;
+            if (!Batches.TryGetValue(full, out list) || list.Count == 0)
+                throw new Fail("NOT_FOUND", "There is no recorded batch of agent edits for this document.");
+            Batch last = list[list.Count - 1];
+            string now = DocFingerprint(doc);
+            if (now != last.Fingerprint)
+                throw new Fail("STALE_BATCH", "The document changed after that batch (the user edited it). Reverting would also undo their edits; save a copy first if that is what you want.");
+            bool undone = (bool)doc.Undo(1);
+            list.RemoveAt(list.Count - 1);
+            RememberDoc(doc);
+            Dictionary<string, object> result = new Dictionary<string, object>();
+            result["reverted"] = last.Id;
+            result["undone"] = undone;
+            result["paragraphs"] = (int)doc.Paragraphs.Count;
+            return result;
+        }
         throw new Fail("BAD_ARGS", "Unknown command \"" + cmd + "\".");
     }
 
@@ -2403,6 +2423,38 @@ static class Program
     /// pointing at the same paragraph even after its text changes. An existing bookmark at that position wins;
     /// a new one is named after the text hash, which only serves to keep names unique. WPS takes two arguments only:
     /// its Bookmarks.Add has no hidden flag.
+    /// One batch of agent edits, written down so it can be reverted after the fact: the fingerprint is the document
+    /// as it stood when the batch ended, and reverting is refused once the document no longer matches it.
+    class Batch
+    {
+        public string Id;
+        public string Fingerprint;
+        public int Ops;
+        public DateTime At;
+    }
+
+    static readonly Dictionary<string, List<Batch>> Batches =
+        new Dictionary<string, List<Batch>>(StringComparer.OrdinalIgnoreCase);
+
+    static string DocFingerprint(dynamic doc)
+    {
+        List<string> texts = ParagraphTexts(doc);
+        return Hash8(string.Join("\n", texts.ToArray())) + "/" + texts.Count;
+    }
+
+    static void RecordBatch(dynamic doc, string id, int ops)
+    {
+        try
+        {
+            string full = (string)doc.FullName;
+            List<Batch> list;
+            if (!Batches.TryGetValue(full, out list)) { list = new List<Batch>(); Batches[full] = list; }
+            list.Add(new Batch { Id = id, Fingerprint = DocFingerprint(doc), Ops = ops, At = DateTime.UtcNow });
+            while (list.Count > 20) list.RemoveAt(0);
+        }
+        catch (Exception) { }
+    }
+
     /// A bookmark on a paragraph's end mark rather than over its whole range: inserting a paragraph above it then
     /// leaves the bookmark where it was instead of stretching it over the new paragraph.
     static void AddBlock(dynamic doc, string name, dynamic paragraph)
@@ -9854,6 +9906,7 @@ static class Program
         if (!quiet) Remember(doc); else DocWindow = IntPtr.Zero;
         if (card && !cardStarted) { cardStarted = true; Card.Start(); }
         string docName = (string)doc.Name;
+        string batchId = DateTime.UtcNow.Ticks.ToString("x");
         dynamic undo = null;
         // One undo step for the whole batch: the user takes it back with a single Ctrl+Z.
         if (kind == "word") { try { undo = app.UndoRecord; undo.StartCustomRecord("AI edit"); } catch (COMException) { undo = null; } }
@@ -9918,7 +9971,7 @@ static class Program
             }
             if (undo != null) { try { undo.EndCustomRecord(); } catch (COMException) { } }
             // The agent's own edits are not user changes: the snapshot is taken after them.
-            if (kind == "word") RememberDoc(doc);
+            if (kind == "word") { RememberDoc(doc); RecordBatch(doc, batchId, ops.Count); }
         }
         if (card) { Card.Hold = false; Card.Report("AI 已编辑 " + docName, Linger); }
         result["done"] = done;
