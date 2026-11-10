@@ -924,22 +924,57 @@ static class Program
         }
         if (cmd == "revert")
         {
-            if (kind != "word") throw new Fail("BAD_ARGS", "Reverting a recorded batch is only available for Word so far.");
             string full = (string)doc.FullName;
             List<Batch> list;
             if (!Batches.TryGetValue(full, out list) || list.Count == 0)
                 throw new Fail("NOT_FOUND", "There is no recorded batch of agent edits for this document.");
             Batch last = list[list.Count - 1];
-            string now = DocFingerprint(doc);
-            if (now != last.Fingerprint)
-                throw new Fail("STALE_BATCH", "The document changed after that batch (the user edited it). Reverting would also undo their edits; save a copy first if that is what you want.");
-            bool undone = (bool)doc.Undo(1);
-            list.RemoveAt(list.Count - 1);
-            RememberDoc(doc);
             Dictionary<string, object> result = new Dictionary<string, object>();
+            if (kind == "word")
+            {
+                string now = DocFingerprint(doc);
+                if (now != last.Fingerprint)
+                    throw new Fail("STALE_BATCH", "The document changed after that batch (the user edited it). Reverting would also undo their edits; save a copy first if that is what you want.");
+                bool undone = (bool)doc.Undo(1);
+                list.RemoveAt(list.Count - 1);
+                RememberDoc(doc);
+                result["reverted"] = last.Id;
+                result["undone"] = undone;
+                result["paragraphs"] = (int)doc.Paragraphs.Count;
+                return result;
+            }
+            // Excel and PowerPoint: the batch copy is read back into the document that is open, so no window closes.
+            string current = DocDigest(kind, doc);
+            if (current != last.Fingerprint)
+                throw new Fail("STALE_BATCH", "The document changed after that batch (the user edited it). Reverting would also undo their edits; save a copy first if that is what you want.");
+            if (last.Copy == null || !File.Exists(last.Copy))
+                throw new Fail("NOT_FOUND", "The copy taken before that batch is gone; open the file again and revert is no longer possible.");
+            list.RemoveAt(list.Count - 1);
+            if (kind == "excel")
+            {
+                dynamic copy = app.Workbooks.Open(last.Copy, 0, true);
+                try
+                {
+                    foreach (dynamic source in copy.Worksheets)
+                    {
+                        dynamic target = null;
+                        try { target = doc.Worksheets[source.Name]; } catch (Exception) { continue; }
+                        dynamic used = source.UsedRange;
+                        try { target.UsedRange.ClearContents(); } catch (Exception) { }
+                        try { target.Range[used.Address].Formula = used.Formula; } catch (Exception) { }
+                    }
+                }
+                finally { try { copy.Close(false); } catch (Exception) { } }
+            }
+            else
+            {
+                while ((int)doc.Slides.Count > 0) { doc.Slides[1].Delete(); }
+                doc.Slides.InsertFromFile(last.Copy, 0);
+            }
             result["reverted"] = last.Id;
-            result["undone"] = undone;
-            result["paragraphs"] = (int)doc.Paragraphs.Count;
+            result["note"] = kind == "excel"
+                ? "values and formulas were restored from the copy taken before that batch; formats, sheets added after it and charts are not covered"
+                : "the slides were restored from the copy taken before that batch; layouts, speaker notes and animations are not covered";
             return result;
         }
         throw new Fail("BAD_ARGS", "Unknown command \"" + cmd + "\".");
@@ -2429,6 +2464,7 @@ static class Program
     {
         public string Id;
         public string Fingerprint;
+        public string Copy;
         public int Ops;
         public DateTime At;
     }
@@ -2436,20 +2472,83 @@ static class Program
     static readonly Dictionary<string, List<Batch>> Batches =
         new Dictionary<string, List<Batch>>(StringComparer.OrdinalIgnoreCase);
 
+    static string BatchFolder()
+    {
+        string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "dsh-office", "batches");
+        Directory.CreateDirectory(dir);
+        return dir;
+    }
+
     static string DocFingerprint(dynamic doc)
     {
         List<string> texts = ParagraphTexts(doc);
         return Hash8(string.Join("\n", texts.ToArray())) + "/" + texts.Count;
     }
 
-    static void RecordBatch(dynamic doc, string id, int ops)
+    /// What an Excel workbook holds, cheaply: the values of its used range, capped so a huge sheet stays quick.
+    static string ExcelDigest(dynamic doc)
+    {
+        try
+        {
+            object raw = doc.UsedRange.Value2;
+            object[,] grid = raw as object[,];
+            if (grid == null) return Hash8(Convert.ToString(raw, System.Globalization.CultureInfo.InvariantCulture));
+            int rows = grid.GetUpperBound(0) - grid.GetLowerBound(0) + 1;
+            int cols = grid.GetUpperBound(1) - grid.GetLowerBound(1) + 1;
+            StringBuilder text = new StringBuilder();
+            int rowLimit = Math.Min(rows, 5000), colLimit = Math.Min(cols, 100);
+            for (int r = 0; r < rowLimit; r++)
+            {
+                for (int c = 0; c < colLimit; c++)
+                {
+                    text.Append(Convert.ToString(grid[grid.GetLowerBound(0) + r, grid.GetLowerBound(1) + c], System.Globalization.CultureInfo.InvariantCulture));
+                    text.Append('\u001f');
+                }
+                text.Append('\n');
+            }
+            return Hash8(text.ToString()) + "/" + rows + "x" + cols;
+        }
+        catch (Exception) { return ""; }
+    }
+
+    /// What a presentation holds: each page and the text of its shapes.
+    static string PptDigest(dynamic doc)
+    {
+        try
+        {
+            StringBuilder text = new StringBuilder();
+            int slides = (int)doc.Slides.Count;
+            for (int i = 1; i <= slides; i++)
+            {
+                dynamic slide = doc.Slides[i];
+                text.Append("S").Append(i).Append(':');
+                foreach (dynamic shape in slide.Shapes)
+                {
+                    text.Append((string)shape.Name).Append('|');
+                    try { text.Append((string)shape.TextFrame.TextRange.Text); } catch (Exception) { }
+                    text.Append('\u001f');
+                }
+                text.Append('\n');
+            }
+            return Hash8(text.ToString()) + "/" + slides;
+        }
+        catch (Exception) { return ""; }
+    }
+
+    static string DocDigest(string kind, dynamic doc)
+    {
+        return kind == "excel" ? ExcelDigest(doc) : PptDigest(doc);
+    }
+
+    static void RecordBatch(string kind, dynamic doc, string id, int ops, string copy)
     {
         try
         {
             string full = (string)doc.FullName;
             List<Batch> list;
             if (!Batches.TryGetValue(full, out list)) { list = new List<Batch>(); Batches[full] = list; }
-            list.Add(new Batch { Id = id, Fingerprint = DocFingerprint(doc), Ops = ops, At = DateTime.UtcNow });
+            string fingerprint = kind == "word" ? DocFingerprint(doc) : DocDigest(kind, doc);
+            list.Add(new Batch { Id = id, Fingerprint = fingerprint, Copy = copy, Ops = ops, At = DateTime.UtcNow });
             while (list.Count > 20) list.RemoveAt(0);
         }
         catch (Exception) { }
@@ -9907,6 +10006,19 @@ static class Program
         if (card && !cardStarted) { cardStarted = true; Card.Start(); }
         string docName = (string)doc.Name;
         string batchId = DateTime.UtcNow.Ticks.ToString("x");
+        // Excel and PowerPoint cannot undo what the agent does through COM: a copy of the document is kept instead,
+        // and a revert puts that copy back.
+        string batchCopy = null;
+        if ((kind == "excel" || kind == "ppt") && ((string)doc.Path).Length > 0)
+        {
+            try
+            {
+                string extension = kind == "excel" ? ".xlsx" : ".pptx";
+                batchCopy = Path.Combine(BatchFolder(), Hash8((string)doc.FullName) + "-" + batchId + extension);
+                doc.SaveCopyAs(batchCopy);
+            }
+            catch (Exception) { batchCopy = null; }
+        }
         dynamic undo = null;
         // One undo step for the whole batch: the user takes it back with a single Ctrl+Z.
         if (kind == "word") { try { undo = app.UndoRecord; undo.StartCustomRecord("AI edit"); } catch (COMException) { undo = null; } }
@@ -9971,7 +10083,8 @@ static class Program
             }
             if (undo != null) { try { undo.EndCustomRecord(); } catch (COMException) { } }
             // The agent's own edits are not user changes: the snapshot is taken after them.
-            if (kind == "word") { RememberDoc(doc); RecordBatch(doc, batchId, ops.Count); }
+            if (kind == "word") RememberDoc(doc);
+            RecordBatch(kind, doc, batchId, ops.Count, batchCopy);
         }
         if (card) { Card.Hold = false; Card.Report("AI 已编辑 " + docName, Linger); }
         result["done"] = done;
