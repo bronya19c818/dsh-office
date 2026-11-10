@@ -377,12 +377,127 @@ class Card : Form
     }
 }
 
+// ───────────────────────── document change events ─────────────────────────
+
+[ComImport, Guid("B196B284-BAB4-101A-B69C-00AA00341D07"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IConnectionPointContainer
+{
+    void EnumConnectionPoints(out IEnumConnectionPoints ppEnum);
+    void FindConnectionPoint(ref Guid riid, out IConnectionPoint ppCP);
+}
+
+[ComImport, Guid("B196B285-BAB4-101A-B69C-00AA00341D07"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IEnumConnectionPoints
+{
+    void Next(int cConnections, [Out, MarshalAs(UnmanagedType.LPArray)] IConnectionPoint[] ppCP, out int pcFetched);
+    void Skip(int cConnections);
+    void Reset();
+    void Clone(out IEnumConnectionPoints ppEnum);
+}
+
+[ComImport, Guid("B196B286-BAB4-101A-B69C-00AA00341D07"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IConnectionPoint
+{
+    void GetConnectionInterface(out Guid pIID);
+    void GetConnectionPointContainer(out IConnectionPointContainer ppCPC);
+    void Advise([MarshalAs(UnmanagedType.Interface)] object pUnkSink, out int pdwCookie);
+    void Unadvise(int dwCookie);
+    void EnumConnections(out object ppEnum);
+}
+
+/// Word's ApplicationEvents4: one event is all this helper needs, and WPS implements the same interface under the
+/// same IID with DocumentChange at dispId 3 (measured).
+[ComVisible(true)]
+[Guid("00020A01-0000-0000-C000-000000000046")]
+[InterfaceType(ComInterfaceType.InterfaceIsIDispatch)]
+public interface IApplicationEvents4
+{
+    [DispId(3)] void DocumentChange();
+}
+
+[ComVisible(true)]
+[ClassInterface(ClassInterfaceType.None)]
+public class DocumentEvents : IApplicationEvents4
+{
+    public void DocumentChange()
+    {
+        // Runs on the Office thread: only a flag is set here, nothing talks to Office.
+        Program.MarkChanged();
+    }
+}
+
 static class Program
 {
     [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
 
     static readonly JavaScriptSerializer Json = new JavaScriptSerializer();
     static TextWriter Out;
+
+    // DocumentChange says a document changed, not which one: a flag and a time are all it can give. The flag is
+    // consumed by the next read, which then compares against the snapshot it kept.
+    static volatile bool Dirty;
+    static long ChangedTicks;
+    static readonly HashSet<string> EventSubscribed = new HashSet<string>();
+    static readonly Dictionary<string, int> EventCookie = new Dictionary<string, int>();
+    static readonly Dictionary<string, object> EventPoint = new Dictionary<string, object>();
+
+    public static void MarkChanged()
+    {
+        Interlocked.Exchange(ref ChangedTicks, DateTime.UtcNow.Ticks);
+        Dirty = true;
+    }
+
+    static bool ConsumeChanged()
+    {
+        if (!Dirty) return false;
+        Dirty = false;
+        Interlocked.Exchange(ref ChangedTicks, 0);
+        return true;
+    }
+
+    /// Listen for document changes on an app we are attached to; failing only means the read falls back to comparing
+    /// its snapshot on every call.
+    static void SubscribeEvents(string kind, dynamic app)
+    {
+        string key = Key(kind);
+        if (EventSubscribed.Contains(key)) return;
+        try
+        {
+            Guid eventsIid = new Guid("00020A01-0000-0000-C000-000000000046");
+            IConnectionPointContainer container = app as IConnectionPointContainer;
+            if (container == null) return;
+            IEnumConnectionPoints points;
+            container.EnumConnectionPoints(out points);
+            IConnectionPoint[] list = new IConnectionPoint[16];
+            int fetched;
+            points.Next(16, list, out fetched);
+            for (int i = 0; i < fetched; i++)
+            {
+                Guid iid;
+                list[i].GetConnectionInterface(out iid);
+                if (iid != eventsIid) continue;
+                int cookie;
+                list[i].Advise(new DocumentEvents(), out cookie);
+                EventSubscribed.Add(key);
+                EventCookie[key] = cookie;
+                EventPoint[key] = list[i];
+                return;
+            }
+        }
+        catch (Exception) { }
+    }
+
+    static void UnsubscribeEvents(string kind)
+    {
+        string key = Key(kind);
+        int cookie;
+        if (!EventCookie.TryGetValue(key, out cookie)) return;
+        try { ((IConnectionPoint)EventPoint[key]).Unadvise(cookie); } catch (Exception) { }
+        EventCookie.Remove(key);
+        EventPoint.Remove(key);
+        EventSubscribed.Remove(key);
+        Dirty = false;
+    }
 
     [STAThread]
     static void Main()
@@ -767,12 +882,13 @@ static class Program
     static dynamic App(string kind, bool start)
     {
         dynamic app = Running(kind);
-        if (app != null) return app;
+        if (app != null) { SubscribeEvents(kind, app); return app; }
         if (!start) throw new Fail("NOT_RUNNING", AppName(kind) + " is not running. Open the file with office_open first.");
         Type type = Type.GetTypeFromProgID(ProgId(kind));
         if (type == null) throw new Fail("NOT_INSTALLED", AppName(kind) + " is not installed on this computer.");
         app = Activator.CreateInstance(type);
         Started.Add(Key(kind));
+        SubscribeEvents(kind, app);
         // Started by automation, Excel would quit once we let go of it; hand it to the user.
         if (kind == "excel") { try { app.UserControl = true; } catch (Exception) { } }
         return app;
@@ -884,6 +1000,7 @@ static class Program
             dynamic idle = Running(kind);
             if (idle == null) return "not running";
             if ((int)Docs(kind, idle).Count > 0) throw new Fail("BAD_ARGS", AppName(kind) + " still has documents open; it is left running.");
+            UnsubscribeEvents(kind);
             idle.Quit();
             return "quit";
         }
@@ -2667,7 +2784,7 @@ static class Program
         int from = Math.Max(1, a.Int("from", 1)), count = Math.Max(1, Math.Min(400, a.Int("count", 120)));
         bool full = a.Flag("full", false);
         bool blocks = a.Flag("blocks", false);
-        bool changes = a.Flag("changes", false);
+        bool changes = a.Flag("changes", false) || ConsumeChanged();
         List<object> items = new List<object>();
         Dictionary<int, string> blockIndex = null;
         if (blocks)
