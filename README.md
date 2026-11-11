@@ -1,7 +1,6 @@
-# dsh-office
+# dsh-office-copilot
 
 [![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)](https://awesome-dsh-plugin.com)
-[![npm](https://img.shields.io/npm/v/@copylee/dsh-office)](https://www.npmjs.com/package/@copylee/dsh-office)
 
 让 DeepSeek Harness 直接在你电脑上打开的 Word、Excel、PowerPoint 里改文档。AI 不改写文件，而是通过 Office 的自动化接口（COM）让应用自己执行修改，所以改动会实时出现在窗口里，你可以边看边一起编辑，格式不会因为换工具保存而走样。
 
@@ -62,12 +61,12 @@
 
 ## 安装
 
-DSH 桌面版：**插件 → 添加插件**，输入 `@copylee/dsh-office`，安装后启用。
+DSH 桌面版：**插件 → 添加插件**，输入 `dsh-office-copilot`，安装后启用。
 
 命令行（web 等其他 profile）：
 
 ```bash
-dsh plugin --profile web add @copylee/dsh-office@latest
+dsh plugin --profile web add dsh-office-copilot@latest
 ```
 
 要求：Windows 10 / 11（自带 .NET Framework 4.8），微软 Office（Word、Excel、PowerPoint，装了哪个就能用哪个）或 WPS Office（文字、表格、演示），DSH 0.2.0-rc.2 或更高。
@@ -180,3 +179,4 @@ node scripts/footnotes-smoke.mjs --wps # WPS 文字独立验收
 ## 许可证
 
 MIT
+

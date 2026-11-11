@@ -2,7 +2,7 @@
 import type { UserConfig } from 'tsdown'
 
 const host: UserConfig = {
-  name: '@copylee/dsh-office',
+  name: 'dsh-office-copilot',
   entry: ['lib/types/index.js'],
   outDir: 'lib',
   format: ['esm'],
@@ -18,7 +18,7 @@ const host: UserConfig = {
 
 /** Browser half: one ModuleLoader-wrapped file; React comes from the host. */
 const client: UserConfig = {
-  name: '@copylee/dsh-office/client',
+  name: 'dsh-office-copilot/client',
   entry: { client: 'lib/types/client/index.js' },
   outDir: 'lib',
   format: 'cjs',
@@ -31,7 +31,7 @@ const client: UserConfig = {
   define: { 'process.env.NODE_ENV': JSON.stringify('production') },
   outputOptions: {
     entryFileNames: 'client.js',
-    banner: 'window.__ModuleLoader__.load({ id: "@copylee/dsh-office", factory: (require) => {',
+    banner: 'window.__ModuleLoader__.load({ id: "dsh-office-copilot", factory: (require) => {',
     footer: 'return module.exports; } });',
     intro: 'var module = { exports: {} }; var exports = module.exports;',
   },

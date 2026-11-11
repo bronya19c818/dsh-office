@@ -1,17 +1,17 @@
 {
-  "name": "@copylee/dsh-office",
-  "version": "1.2.0",
-  "description": "DeepSeek Harness Office 插件（Windows）：AI 直接在你打开的 Word / Excel / PowerPoint 里改文档，改动实时出现在窗口中，你可以同时编辑；读结构、批量编辑、渲染成图核对、保存。",
+  "name": "dsh-office-copilot",
+  "version": "1.3.0",
+  "description": "DeepSeek Harness Office 插件（Windows）：AI 直接在你打开的 Word / Excel / PowerPoint 里改文档，改动实时出现在窗口中，你可以同时编辑；读结构、批量编辑、渲染成图核对、回退改动、保存。",
   "type": "module",
-  "author": "copylee",
+  "author": "bronya19c818",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/copylee711/dsh-office.git"
+    "url": "git+https://github.com/bronya19c818/dsh-office-copilot.git"
   },
   "bugs": {
-    "url": "https://github.com/copylee711/dsh-office/issues"
+    "url": "https://github.com/bronya19c818/dsh-office-copilot/issues"
   },
-  "homepage": "https://github.com/copylee711/dsh-office#readme",
+  "homepage": "https://github.com/bronya19c818/dsh-office-copilot#readme",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
   "exports": {

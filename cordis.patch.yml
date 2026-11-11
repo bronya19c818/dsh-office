@@ -1,4 +1,4 @@
 - insert:
-    - id: copylee-office
-      name: '@copylee/dsh-office'
+    - id: dsh-office-copilot
+      name: 'dsh-office-copilot'
       config: {}

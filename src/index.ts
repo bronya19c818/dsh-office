@@ -20,7 +20,7 @@ import { createTools } from './tools.js'
 
 export { DEFAULTS, ENTRY_ID, resolveConfig } from './settings.js'
 
-export const name = '@copylee/dsh-office'
+export const name = 'dsh-office-copilot'
 export const inject = ['tools', 'attachments']
 
 export const STATUS_ROUTE = '/api/dsh-office/status'
